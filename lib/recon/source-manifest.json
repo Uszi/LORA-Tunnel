@@ -1,0 +1,22 @@
+{
+  "dragon_commit": "7a09930ee8ab112b9b87e94c1c9e47e5e6faaa21",
+  "opendroneid_commit": "849c03adbe0cdd68997a462fafab397edcfe53f3",
+  "files": [
+    {
+      "path": "firmware/include/detection.h",
+      "sha256": "597223d4dbf3b10f820142d88a5791326479aa4bd3e628fe8b5dbedb55f2674b"
+    },
+    {
+      "path": "firmware/include/axon.h",
+      "sha256": "998965092a501df7392940b8bbfcca5cea97eed2e5811a7374417e52186f136e"
+    },
+    {
+      "path": "firmware/include/vendor_prefixes.h",
+      "sha256": "13efbf1c7b00e88fb00878a60027e1111f5560c63e441eaa8e6f4525ad10e615"
+    },
+    {
+      "path": "firmware/include/remote_id.h",
+      "sha256": "7c15f29f91d62af11eafdfd77c7b594a5e437379e3e388ab9c0af708b2a051bd"
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:lora-tunnel:detection-rules:1",
+  "title": "LORA Tunnel optional SD Recon rules",
+  "type": "object",
+  "required": ["schema", "rules"],
+  "properties": {
+    "schema": {"const": 1, "type": "integer"},
+    "rules": {
+      "type": "array", "maxItems": 64,
+      "items": {
+        "type": "object", "required": ["type", "match"], "additionalProperties": true,
+        "properties": {
+          "type": {"enum": ["oui", "name", "ssid_prefix", "service16", "manufacturer"]},
+          "match": {"type": "string", "minLength": 1, "maxLength": 47, "description": "Firmware limits UTF-8 bytes, not Unicode character count. No NUL/control characters."},
+          "label": {"type": "string", "minLength": 1, "maxLength": 47, "default": "Custom rule match"},
+          "category": {"enum": ["alpr", "flock", "axon", "ibeacon", "ring", "camera", "drone", "airtag", "tracker", "glasses", "raven", "skimmer", "hacker", "custom"], "default": "custom"},
+          "confidence": {"enum": ["low", "medium", "high"], "default": "low", "description": "A user-configured grade, not independent validation. Without category, legacy rules are always custom/low."},
+          "alert": {"type": "boolean", "default": false}
+        },
+        "allOf": [
+          {"if": {"properties": {"type": {"const": "oui"}}}, "then": {"properties": {"match": {"pattern": "^[0-9A-Fa-f][048Cc]:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}$"}}}},
+          {"if": {"properties": {"type": {"const": "ssid_prefix"}}}, "then": {"properties": {"match": {"maxLength": 32}}}},
+          {"if": {"properties": {"type": {"enum": ["service16", "manufacturer"]}}}, "then": {"properties": {"match": {"pattern": "^(0[xX])?[0-9A-Fa-f]{4}$"}}}}
+        ]
+      }
+    }
+  }
+}

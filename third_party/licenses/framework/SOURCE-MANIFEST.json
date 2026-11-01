@@ -1,0 +1,175 @@
+{
+  "schema": 1,
+  "scope": "Runtime/framework notice supplement; upstream source and component licenses retain their terms. Full application and LGPL library source accompany the release.",
+  "esp_idf_commit": "b774170ff46c393eeb5e495ea37936038d3f4f4f",
+  "arduino_version": "3.3.12",
+  "sdk_version": "5.5.5+sha.b774170ff46",
+  "records": [
+    {
+      "path": "arduino/LGPL-2.1.txt",
+      "sha256": "20e50fe7aae3e56378ebf0417d9de904f55a0e61e4df315333e632a4d3555d95",
+      "source": "GNU LGPL version 2.1; retained direct-library license text"
+    },
+    {
+      "path": "arduino/SOURCE-HEADER-NOTICES.txt",
+      "sha256": "f2cbca69262f2d634cce8a66544a897c658babc0e85945be3a12b96bf70197ac",
+      "source": "arduino installed source/header notices; originals retained in respective source/SDK packages"
+    },
+    {
+      "path": "cJSON/LICENSE",
+      "sha256": "a36dda207c36db5818729c54e7ad4e8b0c6fba847491ba64f372c1a2037b6d5c",
+      "source": "https://raw.githubusercontent.com/DaveGamble/cJSON/b2890c8d76bbb64e710585ebc0a917196b9c67e7/LICENSE",
+      "revision": "b2890c8d76bbb64e710585ebc0a917196b9c67e7"
+    },
+    {
+      "path": "esp-coex-lib/LICENSE",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "source": "https://raw.githubusercontent.com/espressif/esp-coex-lib/79e618f033e926d134decc6d95bb1b1850bd032c/LICENSE",
+      "revision": "79e618f033e926d134decc6d95bb1b1850bd032c"
+    },
+    {
+      "path": "esp-idf/LICENSE",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "source": "https://github.com/espressif/esp-idf/blob/b774170ff46c393eeb5e495ea37936038d3f4f4f/LICENSE",
+      "revision": "b774170ff46c393eeb5e495ea37936038d3f4f4f"
+    },
+    {
+      "path": "esp-idf/components/bt/common/tinycrypt/LICENSE",
+      "sha256": "270e0b63ce74421f1ccaaf03f9c7daa430cdb16c9856259ca4c2e3c74880d589",
+      "source": "https://github.com/espressif/esp-idf/blob/b774170ff46c393eeb5e495ea37936038d3f4f4f/components/bt/common/tinycrypt/LICENSE",
+      "revision": "b774170ff46c393eeb5e495ea37936038d3f4f4f"
+    },
+    {
+      "path": "esp-idf/components/freertos/FreeRTOS-Kernel/LICENSE.md",
+      "sha256": "508a77d2e7b51d98adeed32648ad124b7b30241a8e70b2e72c99f92d8e5874d1",
+      "source": "https://github.com/espressif/esp-idf/blob/b774170ff46c393eeb5e495ea37936038d3f4f4f/components/freertos/FreeRTOS-Kernel/LICENSE.md",
+      "revision": "b774170ff46c393eeb5e495ea37936038d3f4f4f"
+    },
+    {
+      "path": "esp-idf/components/newlib/COPYING.NEWLIB",
+      "sha256": "0681089a556e93791da82718d68011ba452de245f7f59c3846936304756ac0c0",
+      "source": "https://github.com/espressif/esp-idf/blob/b774170ff46c393eeb5e495ea37936038d3f4f4f/components/newlib/COPYING.NEWLIB",
+      "revision": "b774170ff46c393eeb5e495ea37936038d3f4f4f"
+    },
+    {
+      "path": "esp-idf/components/wpa_supplicant/COPYING",
+      "sha256": "a87ac4e333d0f120408a9d814e40c3672cd27f365af89b4f2f6631f7a9338953",
+      "source": "https://github.com/espressif/esp-idf/blob/b774170ff46c393eeb5e495ea37936038d3f4f4f/components/wpa_supplicant/COPYING",
+      "revision": "b774170ff46c393eeb5e495ea37936038d3f4f4f"
+    },
+    {
+      "path": "esp-phy-lib/LICENSE",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "source": "https://raw.githubusercontent.com/espressif/esp-phy-lib/59c1234e929212aec0fdda75769b759951235536/LICENSE",
+      "revision": "59c1234e929212aec0fdda75769b759951235536"
+    },
+    {
+      "path": "esp32-wifi-lib/LICENSE",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "source": "https://raw.githubusercontent.com/espressif/esp32-wifi-lib/22bb3517b08760ed43b889013f8a122db0d46da0/LICENSE",
+      "revision": "22bb3517b08760ed43b889013f8a122db0d46da0"
+    },
+    {
+      "path": "esp32c3-bt-lib/LICENSE",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "source": "https://raw.githubusercontent.com/espressif/esp32c3-bt-lib/0a08c4b32f3666003080b662a1a61794da24ff0f/LICENSE",
+      "revision": "0a08c4b32f3666003080b662a1a61794da24ff0f"
+    },
+    {
+      "path": "lwip/COPYING",
+      "sha256": "ef4aac92e05e87cd1cdc140870ed52206ba03d4a7fe46c1e11d7ffa6c87d252b",
+      "source": "https://raw.githubusercontent.com/espressif/esp-lwip/fd432e4ee2cfb7f7f1c7eb7227e0173412e7b84e/COPYING",
+      "revision": "fd432e4ee2cfb7f7f1c7eb7227e0173412e7b84e"
+    },
+    {
+      "path": "mbedtls/LICENSE",
+      "sha256": "9b405ef4c89342f5eae1dd828882f931747f71001cfba7d114801039b52ad09b",
+      "source": "https://raw.githubusercontent.com/espressif/mbedtls/9d669eadb1955d348986b9280156710aaaadf79f/LICENSE",
+      "revision": "9d669eadb1955d348986b9280156710aaaadf79f"
+    },
+    {
+      "path": "protobuf-c/LICENSE",
+      "sha256": "b8999cb392cc5bbe8cd679de59584ad8d2f26033123e76f1d662fa14b9d4f287",
+      "source": "https://raw.githubusercontent.com/protobuf-c/protobuf-c/abc67a11c6db271bedbb9f58be85d6f4e2ea8389/LICENSE",
+      "revision": "abc67a11c6db271bedbb9f58be85d6f4e2ea8389"
+    },
+    {
+      "path": "sdk-header/SOURCE-HEADER-NOTICES.txt",
+      "sha256": "9aeab05300877a7c6d9be6f0ec91811d9a90a191c32f802a04786d607d7823f0",
+      "source": "sdk-header installed source/header notices; originals retained in respective source/SDK packages"
+    },
+    {
+      "path": "tlsf/BSD-3-Clause.txt",
+      "sha256": "5a93d5831e1297ab10fe643e1a631e83be392896da14ee2951285a79012df69d",
+      "source": "https://raw.githubusercontent.com/spdx/license-list-data/v3.28.0/text/BSD-3-Clause.txt",
+      "revision": "SPDX license-list-data v3.28.0; copyright holder is retained in pinned tlsf source headers"
+    },
+    {
+      "path": "tlsf/tlsf.c",
+      "sha256": "ca8f8c1941e0e34a4b127a7d2bd7c77e66ad39d02450111087f32b552b2f3628",
+      "source": "https://raw.githubusercontent.com/espressif/tlsf/2867f6883a12920b1969ff9624c0ab0e4185c2ce/tlsf.c",
+      "revision": "2867f6883a12920b1969ff9624c0ab0e4185c2ce"
+    },
+    {
+      "path": "tlsf/tlsf.h",
+      "sha256": "69799f4f1e7c5f8d3a35e89f5efb8014aa00e6e49f96939b93fc39ceb95d0e8b",
+      "source": "https://raw.githubusercontent.com/espressif/tlsf/2867f6883a12920b1969ff9624c0ab0e4185c2ce/include/tlsf.h",
+      "revision": "2867f6883a12920b1969ff9624c0ab0e4185c2ce"
+    },
+    {
+      "path": "toolchain-runtime/gcc/COPYING",
+      "sha256": "231f7edcc7352d7734a96eef0b8030f77982678c516876fcb81e25b32d68564c",
+      "source": "Installed xtensa-esp-elf 14.2.0+20260121: share/licenses/gcc/COPYING"
+    },
+    {
+      "path": "toolchain-runtime/gcc/COPYING.LIB",
+      "sha256": "a9bdde5616ecdd1e980b44f360600ee8783b1f99b8cc83a2beb163a0a390e861",
+      "source": "Installed xtensa-esp-elf 14.2.0+20260121: share/licenses/gcc/COPYING.LIB"
+    },
+    {
+      "path": "toolchain-runtime/gcc/COPYING.RUNTIME",
+      "sha256": "9d6b43ce4d8de0c878bf16b54d8e7a10d9bd42b75178153e3af6a815bdc90f74",
+      "source": "Installed xtensa-esp-elf 14.2.0+20260121: share/licenses/gcc/COPYING.RUNTIME"
+    },
+    {
+      "path": "toolchain-runtime/gcc/COPYING3",
+      "sha256": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903",
+      "source": "Installed xtensa-esp-elf 14.2.0+20260121: share/licenses/gcc/COPYING3"
+    },
+    {
+      "path": "toolchain-runtime/gcc/COPYING3.LIB",
+      "sha256": "a853c2ffec17057872340eee242ae4d96cbf2b520ae27d903e1b2fef1a5f9d1c",
+      "source": "Installed xtensa-esp-elf 14.2.0+20260121: share/licenses/gcc/COPYING3.LIB"
+    },
+    {
+      "path": "toolchain-runtime/newlib/COPYING",
+      "sha256": "231f7edcc7352d7734a96eef0b8030f77982678c516876fcb81e25b32d68564c",
+      "source": "Installed xtensa-esp-elf 14.2.0+20260121: share/licenses/newlib/COPYING"
+    },
+    {
+      "path": "toolchain-runtime/newlib/COPYING.LIB",
+      "sha256": "a9bdde5616ecdd1e980b44f360600ee8783b1f99b8cc83a2beb163a0a390e861",
+      "source": "Installed xtensa-esp-elf 14.2.0+20260121: share/licenses/newlib/COPYING.LIB"
+    },
+    {
+      "path": "toolchain-runtime/newlib/COPYING.LIBGLOSS",
+      "sha256": "f3b7f3e4426b1fa6f60198dae7adfedd94b77b28db2d108adc0253575011e0ff",
+      "source": "Installed xtensa-esp-elf 14.2.0+20260121: share/licenses/newlib/COPYING.LIBGLOSS"
+    },
+    {
+      "path": "toolchain-runtime/newlib/COPYING.NEWLIB",
+      "sha256": "422aa40293093fb54fc66e692a0d68fd0b24ed5602e5d1d33ad05ba3909057e9",
+      "source": "Installed xtensa-esp-elf 14.2.0+20260121: share/licenses/newlib/COPYING.NEWLIB"
+    },
+    {
+      "path": "toolchain-runtime/newlib/COPYING3",
+      "sha256": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903",
+      "source": "Installed xtensa-esp-elf 14.2.0+20260121: share/licenses/newlib/COPYING3"
+    },
+    {
+      "path": "toolchain-runtime/newlib/COPYING3.LIB",
+      "sha256": "a853c2ffec17057872340eee242ae4d96cbf2b520ae27d903e1b2fef1a5f9d1c",
+      "source": "Installed xtensa-esp-elf 14.2.0+20260121: share/licenses/newlib/COPYING3.LIB"
+    }
+  ]
+}

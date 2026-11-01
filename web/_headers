@@ -1,0 +1,11 @@
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: serial=(self "https://valleytechsolutions.tech" "https://www.valleytechsolutions.tech")
+  Content-Security-Policy: frame-ancestors 'self' https://valleytechsolutions.tech https://www.valleytechsolutions.tech
+/firmware/manifest.json
+  Cache-Control: no-cache
+/release.json
+  Cache-Control: no-cache
+/downloads/*
+  Cache-Control: public, max-age=3600

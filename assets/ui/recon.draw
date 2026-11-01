@@ -1,0 +1,50 @@
+rect 0 0 240 320 33
+rect 12 5 2 8 30688
+outline 8 12 17 16 30688
+outline 12 15 9 5 2047
+rect 12 23 9 1 30688
+text 33 9 2 30688 0 "LORA TUNNEL"
+text 9 32 1 31824 0 "RECON / MATCHED INDICATORS"
+rect 8 48 224 24 33
+text 9 48 1 2047 0 "SD OK NO FIX  4.05V"
+text 9 61 1 31824 0 "GNSS DATA / NO FIX / 3 VISIBLE"
+rect 8 78 168 26 2115
+outline 8 78 168 26 2047
+text 92 91 1 2047 1 "FILTER: ALL >"
+rect 184 78 48 26 2115
+outline 184 78 48 26 31824
+text 208 91 1 31824 1 "SOUND"
+rect 8 110 224 22 33
+text 9 112 1 2047 0 "MATCHES 12 / BUZZER OFF"
+text 9 123 1 31824 0 "RECON READY"
+rect 8 136 224 48 2115
+rect 8 142 3 36 30688
+text 16 140 1 61309 0 "iBeacon sample -58dBm x3"
+text 16 151 1 30688 0 "IBEACON / STRONG SIGNATURE"
+text 16 163 1 31824 0 "Valid manufacturer payload / UUID +"
+text 16 173 1 31824 0 " major + minor"
+rect 8 188 224 48 2115
+rect 8 194 3 36 64800
+text 16 192 1 61309 0 "Ring vendor candidate -72dBm"
+text 16 203 1 64800 0 "RING / WEAK INDICATOR"
+text 16 215 1 31824 0 "Public address matches vendor prefi"
+text 16 225 1 31824 0 "x; model unconfirmed"
+rect 8 242 40 26 2115
+outline 8 242 40 26 2047
+text 28 255 1 2047 1 "<"
+rect 50 242 140 26 33
+text 57 251 1 31824 0 "1/2  3 RECENT"
+rect 192 242 40 26 2115
+outline 192 242 40 26 2047
+text 212 255 1 2047 1 ">"
+rect 8 270 224 8 33
+text 9 270 1 31824 0 "DROP 0  ERR 0"
+rect 8 280 48 32 2115
+outline 8 280 48 32 2047
+text 32 296 1 2047 1 "HOME"
+rect 64 280 108 32 30688
+outline 64 280 108 32 30688
+text 118 296 1 33 1 "START RECON"
+rect 180 280 52 32 2115
+outline 180 280 52 32 2047
+text 206 296 1 2047 1 "SETUP"

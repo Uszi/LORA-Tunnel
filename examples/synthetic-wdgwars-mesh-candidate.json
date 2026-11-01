@@ -1,0 +1,1 @@
+{"networks":[],"aircraft":[],"meshcore_nodes":[{"node_id":"abcdef12","node_type":"CLIENT","name":"SYNTHETIC NODE DO NOT UPLOAD","lat":3.5,"lon":4.5,"rssi":-110,"first_seen":"2026-11-01 12:00:18","type":"MESHCORE","network":"meshtastic","path_hops":2}]}

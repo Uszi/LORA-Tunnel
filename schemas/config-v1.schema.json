@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:lora-tunnel:config:1",
+  "title": "LORA Tunnel SD configuration, schema 1",
+  "description": "Save as /lora-tunnel/config.json on SD. Current firmware accepts a 16 KiB file and fixed 16 KiB JSON arena; additional fields are retained but not necessarily implemented.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schema", "lora"],
+  "properties": {
+    "schema": {"type": "integer", "const": 1},
+    "lora": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["enabled"],
+      "properties": {
+        "enabled": {"type": "boolean", "default": true, "description": "This project defaults to receive-only US LongFast after the user's confirmation of US operation and 915 MHz Expansion V2 hardware. Verify the actual unit and antenna before reception."},
+        "name": {"type": "string", "maxLength": 39},
+        "frequency_mhz": {"type": "number", "minimum": 902, "maximum": 928, "default": 906.875},
+        "bandwidth_khz": {"enum": [125, 250, 500], "default": 250},
+        "spreading_factor": {"type": "integer", "minimum": 7, "maximum": 12, "default": 11},
+        "coding_rate_denominator": {"type": "integer", "minimum": 5, "maximum": 8, "default": 5},
+        "preamble_symbols": {"type": "integer", "minimum": 8, "maximum": 64, "default": 16},
+        "lna": {"type": "boolean", "default": false}
+      }
+    },
+    "schedule": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "wifi_dwell_ms": {"type": "integer", "minimum": 60, "maximum": 500, "default": 120},
+        "ble_window_ms": {"type": "integer", "minimum": 500, "maximum": 10000, "default": 2500}
+      }
+    },
+    "recon": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "buzzer": {"type": "boolean", "default": true},
+        "display_min": {"enum": ["low", "medium", "high"], "default": "low"},
+        "alert_min": {"enum": ["low", "medium", "high"], "default": "medium"},
+        "categories": {
+          "type": "array", "maxItems": 14, "uniqueItems": true,
+          "description": "Omitted means every category; an empty list disables all Recon categories. These are evidence categories, not authenticated device identities.",
+          "items": {"enum": ["alpr", "flock", "axon", "ibeacon", "ring", "camera", "drone", "airtag", "tracker", "glasses", "raven", "skimmer", "hacker", "custom"]}
+        }
+      }
+    },
+    "ui": {
+      "type": "object", "additionalProperties": true,
+      "properties": {"buttons_enabled": {"type": "boolean", "default": true, "description": "Enable the physical-button shortcuts; touchscreen controls remain available."}}
+    },
+    "credentials": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Private SD plaintext settings, masked in UI. Storage does not imply uploads are implemented. Never include real values in examples/logs/source control.",
+      "properties": {
+        "wigle_api_name": {"$ref": "#/$defs/credential"},
+        "wigle_api_token": {"$ref": "#/$defs/credential"},
+        "wdgwars_token": {"$ref": "#/$defs/credential"},
+        "wifi_ssid": {"$ref": "#/$defs/credential"},
+        "wifi_password": {"$ref": "#/$defs/credential"}
+      }
+    }
+  },
+  "$defs": {
+    "credential": {"type": "string", "maxLength": 127, "pattern": "^[^\\u0000]*$", "writeOnly": true, "description": "Firmware capacity is 127 UTF-8 bytes plus NUL, not 127 arbitrary Unicode characters. Empty string means unconfigured."}
+  }
+}

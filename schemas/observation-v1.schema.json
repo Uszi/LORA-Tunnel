@@ -1,0 +1,229 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:lora-tunnel:observation:1",
+  "title": "LORA Tunnel native session record, schema 1",
+  "description": "One complete JSON object per JSONL line. Header candidates are not decoded or authenticated mesh identities.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schema", "type", "session", "seq", "monotonic_ms", "utc", "gps"],
+  "properties": {
+    "schema": {"type": "integer", "const": 1},
+    "type": {"enum": ["session_start", "session_end", "wifi", "ble", "lora"]},
+    "capture_mode": {"enum": ["wardriver", "recon"], "description": "Optional schema-1 extension. Older records without this field are wardriver records. Recon evidence is excluded from wardrive service exports."},
+    "session": {"type": "string", "pattern": "^[0-9a-f]{8}$"},
+    "seq": {"type": "integer", "minimum": 1, "maximum": 4294967295},
+    "monotonic_ms": {"type": "integer", "minimum": 0},
+    "utc": {
+      "oneOf": [
+        {"type": "null"},
+        {"type": "string", "format": "date-time", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"}
+      ]
+    },
+    "utc_age_ms": {"type": ["integer", "null"], "minimum": 0, "maximum": 4294967294},
+    "timestamp_basis": {"type": "string", "description": "Current writer emits gnss_latest_sentence. Not a precise packet hardware timestamp."},
+    "gps": {"$ref": "#/$defs/gps"},
+    "firmware": {"type": "string", "maxLength": 80},
+    "board": {"type": "string", "maxLength": 128},
+    "counts": {"$ref": "#/$defs/counts"},
+    "wifi": {"$ref": "#/$defs/wifi"},
+    "ble": {"$ref": "#/$defs/ble"},
+    "lora": {"$ref": "#/$defs/lora"},
+    "recon": {"$ref": "#/$defs/recon"},
+    "mesh": {
+      "type": "object",
+      "description": "Experimental future decoded-mesh extension. Current firmware does not emit this. A candidate_header does not imply this object exists or is decoded.",
+      "additionalProperties": true
+    },
+    "synthetic": {"type": "boolean", "description": "True for invented host fixtures; never upload these records."}
+  },
+  "allOf": [
+    {"if": {"properties": {"type": {"enum": ["session_start", "session_end"]}}}, "then": {"required": ["firmware", "board", "counts"]}},
+    {"if": {"properties": {"type": {"const": "wifi"}}}, "then": {"required": ["wifi"]}},
+    {"if": {"properties": {"type": {"const": "ble"}}}, "then": {"required": ["ble"]}},
+    {"if": {"properties": {"type": {"const": "lora"}}}, "then": {"required": ["lora"]}}
+  ],
+  "$defs": {
+    "mac": {"type": "string", "pattern": "^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$"},
+    "hex32": {"type": "string", "pattern": "^[0-9a-f]{8}$"},
+    "raw255": {"type": "string", "pattern": "^([0-9a-f]{2})*$", "maxLength": 510},
+    "raw512": {"type": "string", "pattern": "^([0-9a-f]{2})*$", "maxLength": 1024},
+    "raw1024": {"type": "string", "pattern": "^([0-9a-f]{2})*$", "maxLength": 2048},
+    "counter": {"type": "integer", "minimum": 0, "maximum": 4294967295},
+    "gps": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["valid", "age_ms", "lat", "lon", "alt_m", "hdop", "sats"],
+      "properties": {
+        "valid": {"type": "boolean"},
+        "age_ms": {"type": ["integer", "null"], "minimum": 0, "maximum": 4294967294},
+        "lat": {"type": ["number", "null"], "minimum": -90, "maximum": 90},
+        "lon": {"type": ["number", "null"], "minimum": -180, "maximum": 180},
+        "alt_m": {"type": ["number", "null"]},
+        "hdop": {"type": ["number", "null"], "minimum": 0},
+        "sats": {"type": "integer", "minimum": 0, "maximum": 65535},
+        "accuracy_m": {"type": ["number", "null"], "minimum": 0, "description": "Optional actual horizontal accuracy in metres, not HDOP; current firmware does not emit it."}
+      },
+      "allOf": [
+        {"if": {"properties": {"valid": {"const": true}}}, "then": {
+          "properties": {"lat": {"type": "number"}, "lon": {"type": "number"}, "age_ms": {"type": "integer", "maximum": 10000}}
+        }},
+        {"if": {"properties": {"valid": {"const": false}}}, "then": {
+          "properties": {"lat": {"type": "null"}, "lon": {"type": "null"}, "alt_m": {"type": "null"}}
+        }}
+      ]
+    },
+    "counts": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["ingress_drops", "log_drops", "storage_errors", "radio_errors", "ui_skips", "flush_max_ms"],
+      "properties": {
+        "ingress_drops": {"$ref": "#/$defs/counter"},
+        "log_drops": {"$ref": "#/$defs/counter"},
+        "storage_errors": {"$ref": "#/$defs/counter"},
+        "radio_errors": {"$ref": "#/$defs/counter"},
+        "ui_skips": {"$ref": "#/$defs/counter"},
+        "flush_max_ms": {"$ref": "#/$defs/counter"}
+      }
+    },
+    "wifi": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["ssid", "rssi", "channel", "frequency_mhz", "security", "timestamp_basis"],
+      "properties": {
+        "bssid": {"$ref": "#/$defs/mac"},
+        "tx_address": {"$ref": "#/$defs/mac", "description": "Observed raw-frame transmitter; not automatically an AP/BSSID or a permanent device identity."},
+        "wifi_frame": {"type": "boolean", "description": "True for a captured 802.11 frame rather than a completed AP scan result."},
+        "raw_frame_hex": {"$ref": "#/$defs/raw1024"},
+        "original_len": {"type": "integer", "minimum": 0, "maximum": 65535},
+        "captured_len": {"type": "integer", "minimum": 0, "maximum": 1024},
+        "frame_truncated": {"type": "boolean"},
+        "fcs_present": {"const": false, "description": "The receive callback removes the trailing FCS before retaining frame bytes."},
+        "ssid": {"type": "string", "maxLength": 32, "description": "Display-safe UTF-8 representation of SDK-returned SSID; invalid bytes may be replaced by ?. Hidden/unknown SSID is empty. Consult ssid_sanitized and ssid_hex."},
+        "ssid_hex": {"type": "string", "pattern": "^([0-9a-fA-F]{2}){0,32}$", "description": "Original SDK-returned SSID bytes, at most 32 bytes; bytes beyond an embedded NUL may be unavailable through this scan API."},
+        "ssid_sanitized": {"type": "boolean", "description": "The text representation required replacement of invalid UTF-8 bytes. Do not export replacement characters as an observed SSID."},
+        "rssi": {"type": "integer", "minimum": -127, "maximum": 20},
+        "channel": {"type": "integer", "minimum": 1, "maximum": 14},
+        "frequency_mhz": {"type": "integer", "minimum": 2412, "maximum": 2484},
+        "security": {"type": "string", "maxLength": 47},
+        "timestamp_basis": {"enum": ["scan_result_delivery", "packet_callback"]}
+      },
+      "allOf": [
+        {"if": {"required": ["wifi_frame"], "properties": {"wifi_frame": {"const": true}}},
+         "then": {"required": ["tx_address", "raw_frame_hex", "original_len", "captured_len", "frame_truncated"], "not": {"required": ["bssid"]}},
+         "else": {"required": ["bssid"]}}
+      ]
+    },
+    "ble": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["address", "address_type", "name", "rssi", "payload_hex", "payload_truncated"],
+      "properties": {
+        "address": {"$ref": "#/$defs/mac"},
+        "address_type": {"enum": ["public", "random", "public_identity", "random_identity", "unknown"]},
+        "name": {"type": "string", "maxLength": 39},
+        "name_sanitized": {"type": "boolean", "description": "The displayed advertised name required invalid UTF-8 replacement. Original AD bytes remain in payload_hex within its capture bound."},
+        "rssi": {"type": "integer", "minimum": -127, "maximum": 20},
+        "payload_hex": {"$ref": "#/$defs/raw512"},
+        "payload_truncated": {"type": "boolean"},
+        "original_len": {"type": "integer", "minimum": 0, "maximum": 65535},
+        "captured_len": {"type": "integer", "minimum": 0, "maximum": 512},
+        "advertising_len": {"type": "integer", "minimum": 0, "maximum": 512, "description": "NimBLE ADV length within the retained payload; 0 means no separate boundary is available. If scan response bytes are present, AD lengths must remain within their own segment."},
+        "manufacturer_id": {"type": ["integer", "null"], "minimum": 0, "maximum": 65535},
+        "malformed_ad": {"type": "boolean"}
+      }
+    },
+    "lora": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["frequency_mhz", "bandwidth_khz", "spreading_factor", "coding_rate_denominator", "sync_word", "preamble_symbols", "profile", "lna", "rssi", "snr", "length", "crc_status", "payload_status", "raw_hex", "classification"],
+      "properties": {
+        "frequency_mhz": {"type": "number", "minimum": 902, "maximum": 928},
+        "bandwidth_khz": {"enum": [125, 250, 500]},
+        "spreading_factor": {"type": "integer", "minimum": 7, "maximum": 12},
+        "coding_rate_denominator": {"type": "integer", "minimum": 5, "maximum": 8},
+        "sync_word": {"type": "integer", "minimum": 0, "maximum": 255},
+        "preamble_symbols": {"type": "integer", "minimum": 8, "maximum": 64},
+        "profile": {"type": "string", "maxLength": 39},
+        "lna": {"type": "boolean"},
+        "rssi": {"type": "integer", "minimum": -200, "maximum": 20},
+        "snr": {"type": "number"},
+        "length": {"type": "integer", "minimum": 1, "maximum": 255},
+        "original_len": {"type": "integer", "minimum": 0, "maximum": 65535},
+        "truncated": {"type": "boolean"},
+        "radio_read_status": {"type": "string", "description": "Current writer emits ok after a successful driver read; separate from independently reported CRC status."},
+        "crc_status": {"type": "string", "description": "Current writer emits not_reported; successful driver read is not an independent CRC-observation flag."},
+        "payload_status": {"type": "string", "description": "Current writer emits not_decoded. It has not established whether payload is encrypted or decodable."},
+        "raw_hex": {"$ref": "#/$defs/raw255"},
+        "classification": {"type": "string", "description": "Current values: unknown or meshtastic_header_candidate. A plausible header does not prove sender identity or payload protocol."},
+        "candidate_header": {"$ref": "#/$defs/candidate_header"}
+      }
+    },
+    "recon": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Signature/vendor evidence, not a verified product, owner, intent, or measured probability.",
+      "required": ["category", "confidence", "label", "vendor", "evidence", "payload_valid"],
+      "properties": {
+        "category": {"type": "string", "maxLength": 64},
+        "confidence": {"enum": ["Weak indicator", "Medium evidence", "Strong signature", "Unclassified"]},
+        "label": {"type": "string", "maxLength": 31},
+        "vendor": {"type": "string", "maxLength": 31},
+        "evidence": {"type": "string", "maxLength": 127},
+        "payload_valid": {"type": "boolean"},
+        "remote_id": {
+          "type": "object", "additionalProperties": true,
+          "description": "Fields actually decoded from this broadcast, not merged historical positions. Operator coordinates retain the transmitted location type and do not establish a current pilot position. These are separate from receiver gps.",
+          "required": ["source", "authenticated"],
+          "properties": {
+            "source": {"const": "self_reported_broadcast"},
+            "authenticated": {"const": false},
+            "id": {"type": "string", "maxLength": 40},
+            "id_type": {"type": "integer", "minimum": 0, "maximum": 255},
+            "aircraft_type": {"type": "integer", "minimum": 0, "maximum": 255},
+            "latitude": {"type": "number", "minimum": -90, "maximum": 90},
+            "longitude": {"type": "number", "minimum": -180, "maximum": 180},
+            "operator_latitude": {"type": "number", "minimum": -90, "maximum": 90},
+            "operator_longitude": {"type": "number", "minimum": -180, "maximum": 180},
+            "operator_location_type": {"type": "integer", "minimum": 0, "maximum": 255},
+            "altitude_m": {"type": "number"},
+            "speed_mps": {"type": "number", "minimum": 0}
+          },
+          "dependentRequired": {
+            "id": ["id_type", "aircraft_type"],
+            "latitude": ["longitude"], "longitude": ["latitude"],
+            "operator_latitude": ["operator_longitude", "operator_location_type"],
+            "operator_longitude": ["operator_latitude", "operator_location_type"]
+          }
+        },
+        "ibeacon": {
+          "type": "object", "additionalProperties": true,
+          "required": ["uuid_hex", "major", "minor", "measured_power_dbm"],
+          "properties": {
+            "uuid_hex": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+            "major": {"type": "integer", "minimum": 0, "maximum": 65535},
+            "minor": {"type": "integer", "minimum": 0, "maximum": 65535},
+            "measured_power_dbm": {"type": "integer", "minimum": -128, "maximum": 127}
+          }
+        }
+      }
+    },
+    "candidate_header": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["from", "to", "packet_id", "channel_hash", "hop_limit", "hop_start", "via_mqtt", "want_ack", "next_hop_raw", "relay_node_raw", "relay_fields_available"],
+      "properties": {
+        "from": {"$ref": "#/$defs/hex32"},
+        "to": {"$ref": "#/$defs/hex32"},
+        "packet_id": {"$ref": "#/$defs/hex32"},
+        "channel_hash": {"type": "integer", "minimum": 0, "maximum": 255},
+        "hop_limit": {"type": "integer", "minimum": 0, "maximum": 7},
+        "hop_start": {"type": "integer", "minimum": 0, "maximum": 7},
+        "via_mqtt": {"type": "boolean"},
+        "want_ack": {"type": "boolean"},
+        "next_hop_raw": {"type": "integer", "minimum": 0, "maximum": 255},
+        "relay_node_raw": {"type": "integer", "minimum": 0, "maximum": 255},
+        "relay_fields_available": {"type": "boolean"}
+      }
+    }
+  }
+}

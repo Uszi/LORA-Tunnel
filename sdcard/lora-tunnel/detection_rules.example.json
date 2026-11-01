@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "description": "Optional examples only; detection_rules.json is the loaded file. Built-in Recon signatures work with an empty rules array. Review confidence and alert settings for your own evidence.",
+  "rules": [
+    {"type": "name", "match": "My test beacon", "label": "Owned test beacon", "category": "custom", "confidence": "low", "alert": false},
+    {"type": "ssid_prefix", "match": "OWNED-CAM-", "label": "Owned camera name clue", "category": "camera", "confidence": "low", "alert": false},
+    {"type": "oui", "match": "00:04:7D", "label": "Motorola vendor candidate", "category": "alpr", "confidence": "low", "alert": false},
+    {"type": "service16", "match": "0xFFF0", "label": "Owned test service", "category": "custom", "confidence": "low", "alert": false},
+    {"type": "manufacturer", "match": "0x034D", "label": "Axon company candidate", "category": "axon", "confidence": "medium", "alert": false}
+  ]
+}

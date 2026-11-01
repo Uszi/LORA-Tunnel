@@ -1,0 +1,47 @@
+rect 0 0 240 320 33
+rect 12 5 2 8 30688
+outline 8 12 17 16 30688
+outline 12 15 9 5 2047
+rect 12 23 9 1 30688
+text 33 9 2 30688 0 "LORA TUNNEL"
+text 9 32 1 31824 0 "WARDRIVER / RADIO OBSERVATIONS"
+rect 8 48 224 24 33
+text 9 48 1 2047 0 "SD OK NO FIX  4.05V"
+text 9 61 1 31824 0 "GNSS DATA / NO FIX / 3 VISIBLE"
+rect 8 78 72 26 2047
+outline 8 78 72 26 2047
+text 44 91 1 33 1 ""
+text 32 81 1 33 0 "WiFi"
+text 38 93 1 33 0 "42"
+rect 84 78 72 26 2115
+outline 84 78 72 26 2047
+text 120 91 1 2047 1 ""
+text 111 81 1 2047 0 "BLE"
+text 111 93 1 2047 0 "128"
+rect 160 78 72 26 2115
+outline 160 78 72 26 30688
+text 196 91 1 30688 1 ""
+text 184 81 1 30688 0 "LoRa"
+text 193 93 1 30688 0 "3"
+rect 8 110 224 22 33
+text 9 112 2 31824 0 "READY"
+text 143 114 1 2047 0 "Ready"
+circle 225 119 4 31824
+rect 8 136 224 24 2115
+rect 8 140 3 16 30688
+text 16 140 1 61309 0 "Example AP -62dBm x3"
+rect 8 162 224 24 2115
+rect 8 188 224 24 2115
+rect 8 214 224 24 2115
+rect 8 246 224 30 33
+text 9 248 1 31824 0 "DROP 0  ERR 0  GPS WAIT"
+text 9 262 1 31824 0 "Waiting for GNSS time"
+rect 8 280 48 32 2115
+outline 8 280 48 32 2047
+text 32 296 1 2047 1 "HOME"
+rect 64 280 108 32 30688
+outline 64 280 108 32 30688
+text 118 296 1 33 1 "START DRIVE"
+rect 180 280 52 32 2115
+outline 180 280 52 32 2047
+text 206 296 1 2047 1 "SETUP"

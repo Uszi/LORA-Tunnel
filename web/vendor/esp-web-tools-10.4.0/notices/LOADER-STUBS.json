@@ -1,0 +1,159 @@
+{
+  "license": "GPL-2.0-or-later",
+  "corresponding_source_in_package": "third_party/esp-web-tools-stubs",
+  "source_commits": [
+    {
+      "release": "v1.3.0",
+      "commit": "624b5e79127e3a8d8ef64d07d4fa4e84a4f0c8f4",
+      "source_url": "https://codeload.github.com/espressif/esptool-legacy-flasher-stub/zip/624b5e79127e3a8d8ef64d07d4fa4e84a4f0c8f4",
+      "archive_sha256": "ca1bf20e7c984bdd444f9a39e277e79a3c7694d4a41d100a98afa3aaafdfd740"
+    },
+    {
+      "release": "v1.8.0",
+      "commit": "45b01ccddfe5a0bc3887803b2f1944f7ae75c227",
+      "source_url": "https://codeload.github.com/espressif/esptool-legacy-flasher-stub/zip/45b01ccddfe5a0bc3887803b2f1944f7ae75c227",
+      "archive_sha256": "1399d475a1ac9edf87c461b2d97d34caf9833112b48465112c9a8d298efc1981"
+    },
+    {
+      "release": "v1.10.0",
+      "commit": "57318e8abf31e001c88634ef01b18c88bb30ebbd",
+      "source_url": "https://codeload.github.com/espressif/esptool-legacy-flasher-stub/zip/57318e8abf31e001c88634ef01b18c88bb30ebbd",
+      "archive_sha256": "f96b140ddc9b4572c88043050832c605173b5d826b1913742d68815ee05a8cb8"
+    },
+    {
+      "release": "v1.11.1",
+      "commit": "1ec06fd3b6dc85254c425aa93be694eb1c06b0ed",
+      "source_url": "https://codeload.github.com/espressif/esptool-legacy-flasher-stub/zip/1ec06fd3b6dc85254c425aa93be694eb1c06b0ed",
+      "archive_sha256": "9909b752d1f671d8e13caf267afb0fb5c3ee599f5115be5b308327164269615a"
+    }
+  ],
+  "comparison_fields": [
+    "text",
+    "data",
+    "entry",
+    "text_start",
+    "data_start"
+  ],
+  "binary_comparisons": [
+    {
+      "chip": "esp32",
+      "legacy_release": "v1.3.0",
+      "esptool_js_json_url": "https://raw.githubusercontent.com/espressif/esptool-js/9de1d0d8673f8ef05fdf9bcbd1d39f37c2ec9690/src/targets/stub_flasher/stub_flasher_32.json",
+      "esptool_js_json_sha256": "8a672b647d6e9034cb223f2c756fffbc234af628cf09679b74027bc47c4ff5e4",
+      "legacy_binary_json_url": "https://github.com/espressif/esptool-legacy-flasher-stub/releases/download/v1.3.0/esp32.json",
+      "legacy_binary_json_sha256": "8a672b647d6e9034cb223f2c756fffbc234af628cf09679b74027bc47c4ff5e4",
+      "matched_payload_sha256": "bdad68183dc275e864a44ded43d19997919a2244e09606a4631beec02972b0ee",
+      "all_five_fields_equal": true
+    },
+    {
+      "chip": "esp32c2",
+      "legacy_release": "v1.3.0",
+      "esptool_js_json_url": "https://raw.githubusercontent.com/espressif/esptool-js/9de1d0d8673f8ef05fdf9bcbd1d39f37c2ec9690/src/targets/stub_flasher/stub_flasher_32c2.json",
+      "esptool_js_json_sha256": "54f1fbba0d34bcb03b157108bf4e328b81ad98bd9ed47c48734d05b6cac70025",
+      "legacy_binary_json_url": "https://github.com/espressif/esptool-legacy-flasher-stub/releases/download/v1.3.0/esp32c2.json",
+      "legacy_binary_json_sha256": "54f1fbba0d34bcb03b157108bf4e328b81ad98bd9ed47c48734d05b6cac70025",
+      "matched_payload_sha256": "e6161e428d10f8e306060f3716f5a1e09c380e9fd9f924d3d3da4ddc08a2c45d",
+      "all_five_fields_equal": true
+    },
+    {
+      "chip": "esp32c3",
+      "legacy_release": "v1.3.0",
+      "esptool_js_json_url": "https://raw.githubusercontent.com/espressif/esptool-js/9de1d0d8673f8ef05fdf9bcbd1d39f37c2ec9690/src/targets/stub_flasher/stub_flasher_32c3.json",
+      "esptool_js_json_sha256": "96447f7b55559491e5b978dbb75702741fca544f220c1a38b98893b05cb176d1",
+      "legacy_binary_json_url": "https://github.com/espressif/esptool-legacy-flasher-stub/releases/download/v1.3.0/esp32c3.json",
+      "legacy_binary_json_sha256": "96447f7b55559491e5b978dbb75702741fca544f220c1a38b98893b05cb176d1",
+      "matched_payload_sha256": "8b29158bf2adf87dc5bb232204cdce65171df231f9cac01fe81e076f43f466ce",
+      "all_five_fields_equal": true
+    },
+    {
+      "chip": "esp32c6",
+      "legacy_release": "v1.3.0",
+      "esptool_js_json_url": "https://raw.githubusercontent.com/espressif/esptool-js/9de1d0d8673f8ef05fdf9bcbd1d39f37c2ec9690/src/targets/stub_flasher/stub_flasher_32c6.json",
+      "esptool_js_json_sha256": "7abbca371aeb557ab6abb095af920434ad017ab28ad5b217ab14891a06881e50",
+      "legacy_binary_json_url": "https://github.com/espressif/esptool-legacy-flasher-stub/releases/download/v1.3.0/esp32c6.json",
+      "legacy_binary_json_sha256": "7abbca371aeb557ab6abb095af920434ad017ab28ad5b217ab14891a06881e50",
+      "matched_payload_sha256": "e8ae344927bd2f1b6edef3dcdb86ba13a4a2c73ded1e02a1fb97b2ac58b6bf73",
+      "all_five_fields_equal": true
+    },
+    {
+      "chip": "esp32c61",
+      "legacy_release": "v1.3.0",
+      "esptool_js_json_url": "https://raw.githubusercontent.com/espressif/esptool-js/9de1d0d8673f8ef05fdf9bcbd1d39f37c2ec9690/src/targets/stub_flasher/stub_flasher_32c61.json",
+      "esptool_js_json_sha256": "e119013dc9cbedeb8d7ce3d5f39d9e7d00e4af693bb48eaf3cf6149f72b53e95",
+      "legacy_binary_json_url": "https://github.com/espressif/esptool-legacy-flasher-stub/releases/download/v1.3.0/esp32c61.json",
+      "legacy_binary_json_sha256": "285e317bc3e52b3c19dbbf0d6529b2445a42f6b616612a8e729b8527b0bd0ea8",
+      "matched_payload_sha256": "8dbcaf34f93f8fa703578a308efdb485da06c67bb5cee9ab98795c636abf6e24",
+      "all_five_fields_equal": true
+    },
+    {
+      "chip": "esp32h2",
+      "legacy_release": "v1.3.0",
+      "esptool_js_json_url": "https://raw.githubusercontent.com/espressif/esptool-js/9de1d0d8673f8ef05fdf9bcbd1d39f37c2ec9690/src/targets/stub_flasher/stub_flasher_32h2.json",
+      "esptool_js_json_sha256": "b3d70d7c8a2c813020fae9071aa56a3b1ea683b540616cbd6eec1313ca53d6f9",
+      "legacy_binary_json_url": "https://github.com/espressif/esptool-legacy-flasher-stub/releases/download/v1.3.0/esp32h2.json",
+      "legacy_binary_json_sha256": "b3d70d7c8a2c813020fae9071aa56a3b1ea683b540616cbd6eec1313ca53d6f9",
+      "matched_payload_sha256": "5b941c26e92042e58c97e7f9f187b636a522a6c5f1a007e28f43ef47bd56c221",
+      "all_five_fields_equal": true
+    },
+    {
+      "chip": "esp32s2",
+      "legacy_release": "v1.3.0",
+      "esptool_js_json_url": "https://raw.githubusercontent.com/espressif/esptool-js/9de1d0d8673f8ef05fdf9bcbd1d39f37c2ec9690/src/targets/stub_flasher/stub_flasher_32s2.json",
+      "esptool_js_json_sha256": "f1de232fd1298ea85485bd378e1d10810267c2dd2a9a19deda599f5377cd2342",
+      "legacy_binary_json_url": "https://github.com/espressif/esptool-legacy-flasher-stub/releases/download/v1.3.0/esp32s2.json",
+      "legacy_binary_json_sha256": "f1de232fd1298ea85485bd378e1d10810267c2dd2a9a19deda599f5377cd2342",
+      "matched_payload_sha256": "5dcc894e8e467e6cb6a2cafd74f4ace420718314c233cd6e8566b0a632746db5",
+      "all_five_fields_equal": true
+    },
+    {
+      "chip": "esp32s3",
+      "legacy_release": "v1.3.0",
+      "esptool_js_json_url": "https://raw.githubusercontent.com/espressif/esptool-js/9de1d0d8673f8ef05fdf9bcbd1d39f37c2ec9690/src/targets/stub_flasher/stub_flasher_32s3.json",
+      "esptool_js_json_sha256": "6b5c21747863ccb2976d549b7a1f772cc3cada2bd34a2e5d6dcddc3dda9d6236",
+      "legacy_binary_json_url": "https://github.com/espressif/esptool-legacy-flasher-stub/releases/download/v1.3.0/esp32s3.json",
+      "legacy_binary_json_sha256": "6b5c21747863ccb2976d549b7a1f772cc3cada2bd34a2e5d6dcddc3dda9d6236",
+      "matched_payload_sha256": "99972b4fb277c83202a441dac447169dcab5c625a0c60c1258cc6fcda8548775",
+      "all_five_fields_equal": true
+    },
+    {
+      "chip": "esp8266",
+      "legacy_release": "v1.3.0",
+      "esptool_js_json_url": "https://raw.githubusercontent.com/espressif/esptool-js/9de1d0d8673f8ef05fdf9bcbd1d39f37c2ec9690/src/targets/stub_flasher/stub_flasher_8266.json",
+      "esptool_js_json_sha256": "3b3b43661fc6607dd163e9bc08b8efbb04ac8f570b8e1d3e2c786ca4a2f37f31",
+      "legacy_binary_json_url": "https://github.com/espressif/esptool-legacy-flasher-stub/releases/download/v1.3.0/esp8266.json",
+      "legacy_binary_json_sha256": "3b3b43661fc6607dd163e9bc08b8efbb04ac8f570b8e1d3e2c786ca4a2f37f31",
+      "matched_payload_sha256": "413f3a1f5a88dd397ec533f39fd446929de35eee948ae29fa7b7c0e43721a0ab",
+      "all_five_fields_equal": true
+    },
+    {
+      "chip": "esp32p4rc1",
+      "legacy_release": "v1.8.0",
+      "esptool_js_json_url": "https://raw.githubusercontent.com/espressif/esptool-js/9de1d0d8673f8ef05fdf9bcbd1d39f37c2ec9690/src/targets/stub_flasher/stub_flasher_32p4rc1.json",
+      "esptool_js_json_sha256": "e3455ec385fd22c6a5005dad256180b1fad19941590f25ff0fe4045d817fd369",
+      "legacy_binary_json_url": "https://github.com/espressif/esptool-legacy-flasher-stub/releases/download/v1.8.0/esp32p4rc1.json",
+      "legacy_binary_json_sha256": "cb9b0b7af053310e24d26a98f7926f4d6c450d7931fdf7fd854186be594d0eb6",
+      "matched_payload_sha256": "225cd5ee8e9079d74b5a09c6638c6543dbd1302bc9bb568274351fc37ac479b3",
+      "all_five_fields_equal": true
+    },
+    {
+      "chip": "esp32p4",
+      "legacy_release": "v1.10.0",
+      "esptool_js_json_url": "https://raw.githubusercontent.com/espressif/esptool-js/9de1d0d8673f8ef05fdf9bcbd1d39f37c2ec9690/src/targets/stub_flasher/stub_flasher_32p4.json",
+      "esptool_js_json_sha256": "30352694e0f260d5a5b8543e53bc1f4bae54c8c9c8730cfab85f0bd9cc32e55b",
+      "legacy_binary_json_url": "https://github.com/espressif/esptool-legacy-flasher-stub/releases/download/v1.10.0/esp32p4.json",
+      "legacy_binary_json_sha256": "0b4d78aeef1ed5f3fc2a8c713a1b8083fdeb10ba151f42a99676aaec5d6753e2",
+      "matched_payload_sha256": "73b4e68ccf07a07c8fd10d1c53d0576889037eb05da5677a403a9df8dbbc1a9d",
+      "all_five_fields_equal": true
+    },
+    {
+      "chip": "esp32c5",
+      "legacy_release": "v1.11.1",
+      "esptool_js_json_url": "https://raw.githubusercontent.com/espressif/esptool-js/9de1d0d8673f8ef05fdf9bcbd1d39f37c2ec9690/src/targets/stub_flasher/stub_flasher_32c5.json",
+      "esptool_js_json_sha256": "46470ae5b89988078e1e09d95c23f9c69c99d1545f7c4517b737e5e2f36a42cd",
+      "legacy_binary_json_url": "https://github.com/espressif/esptool-legacy-flasher-stub/releases/download/v1.11.1/esp32c5.json",
+      "legacy_binary_json_sha256": "8e08701b4381364c8d24fa4f2f2fdb2b578dcaf90a589a793712c603dcace977",
+      "matched_payload_sha256": "113d69e1949eac9c051d83e633ddf576e1779ae99d155402bcf3833628439a37",
+      "all_five_fields_equal": true
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+# Preserve source/package hashes, including unmodified upstream components.
+* -text
+*.png binary
+*.bin binary
+*.zip binary

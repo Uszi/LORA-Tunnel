@@ -1,0 +1,23 @@
+{
+  "generated_date": "2026-11-01",
+  "firmware_version": "0.2.2-beta.1",
+  "source": "src/ui.cpp",
+  "source_sha256": "9dc0e987102155a81dc06f73402bcd2bb3279c730b991b46c2d7101036ac20d0",
+  "data": "Synthetic fixture only; no captured network identifiers, coordinates or credentials.",
+  "renderer": "Actual ui.cpp draw calls captured by a host stub, then rasterized with Pillow. Host Consolas font approximates embedded Font0; rounded rectangles are approximated as rectangles.",
+  "files": {
+    "detail.draw": "234a248a8fd563c28fb1d5980697c88ba5aeb3399468203990d16e394c61a6ee",
+    "detail.png": "50dc9790114ada771d2115ca8d55ef3b43d5f25a4db07ebe3d319a72abce9d6d",
+    "home.draw": "4140ee485fce3ee9368705fc96d254a480b24488cd78f4a9bdaeefe0421ead46",
+    "home.png": "65c84ccc43c7462563279721e0d335a8fb4c88be4ef853a41594e1ec37816a37",
+    "keyboard.draw": "b9238d9cdc8bff69e60e9606eae3c5e0d30375082c7c48ab6ccb19c48ac2ef6e",
+    "keyboard.png": "497fe2d36227f01c1f4601e057cbd6d82cb70151cb8cd81bfe324e7c98954f8e",
+    "overview.png": "0e8000c6494d5f6c3a0ba1388e312ad2c000e1623eeabc684171033e4c382a51",
+    "recon.draw": "d667b7d49fe63c613802049211a90db99b02d2ff842052b099af9b3e3707a48d",
+    "recon.png": "54b808cdba71af8fff25d8e2864a2830532a9e5d225f2dc7525702ce993e1581",
+    "settings.draw": "52ec77416db3aad0b85135a01a95c724640375255590e478fde5c3db345fe0bf",
+    "settings.png": "3e630eb3371ea7cd49574d20a294d8603ba0aef75443998618945dbeb24c9ac8",
+    "wardriver.draw": "aec4387ab28ad0b9a9a2224d98eb781c022f2ac75c84140de9b158bca7bbab32",
+    "wardriver.png": "e59aaa458daf7c36c47560f5381fee5f8b1b324a478baac0ad7568ce127821b8"
+  }
+}

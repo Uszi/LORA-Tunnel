@@ -1,0 +1,3 @@
+The esptool-js serial-loader stubs are separate GPL-2.0-or-later programs. Copyright 2016 Cesanta Software Limited and Espressif Systems (Shanghai) Co. Ltd.; original per-file notices are retained in the corresponding source trees.
+
+The matched LORA Tunnel source ZIP includes complete exact sources under third_party/esp-web-tools-stubs for legacy releases v1.3.0, v1.8.0, v1.10.0 and v1.11.1. LOADER-STUBS.json records binary comparison hashes and immutable source URLs. These RAM loader programs are separate from the MIT-licensed LORA Tunnel application.

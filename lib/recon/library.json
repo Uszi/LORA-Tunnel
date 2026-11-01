@@ -1,0 +1,6 @@
+{
+  "name": "LoraTunnelRecon",
+  "version": "0.1.0",
+  "license": "MIT",
+  "description": "Bounded passive classifier; OpenDroneID is vendored in the adjacent project library, never fetched from a registry"
+}

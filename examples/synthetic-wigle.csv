@@ -1,0 +1,4 @@
+WigleWifi-1.6,appRelease=LORA-Tunnel-0.1.0,model=Heltec-V4-R8,release=0.1.0,device=LORA-Tunnel,display=touchscreen,board=Heltec-Expansion-V2,brand=Valleytech
+MAC,SSID,AuthMode,FirstSeen,Channel,Frequency,RSSI,CurrentLatitude,CurrentLongitude,AltitudeMeters,AccuracyMeters,RCOIs,MfgrId,Type
+02:00:00:00:00:01,"SYNTHETIC, DO NOT UPLOAD",[WPA2-PSK-CCMP][ESS],2026-11-01 12:00:01,6,2437,-65,1.5,2.5,,,,,WIFI
+02:00:00:00:00:02,SYNTHETIC BLE,[BLE],2026-11-01 12:00:01,,,-70,1.5,2.5,,,,,BLE
