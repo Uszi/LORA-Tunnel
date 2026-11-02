@@ -1,2 +1,2 @@
 #pragma once
-#define TUNNEL_VERSION "0.2.3-dev"
+#define TUNNEL_VERSION "0.3.0-beta.1"

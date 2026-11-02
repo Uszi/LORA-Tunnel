@@ -8,7 +8,7 @@ rebuild/relink the application for your own use, and reverse engineer the
 firmware to debug those modifications. No project term restricts those rights.
 
 Download both the application source archive and
-`LORA-Tunnel-0.2.2-beta.1-relink.zip` from the same release as the firmware.
+`LORA-Tunnel-0.3.0-beta.1-relink.zip` from the same release as the firmware.
 The companion provides the complete installed Arduino-ESP32 3.3.12 source
 package and sources for TinyGPSPlus 1.1.0, ArduinoJson 6.21.5, LovyanGFX 1.2.24,
 NimBLE-Arduino 2.5.2 and RadioLib 7.8.1, with their original notices. The
@@ -39,7 +39,7 @@ images, and all application compilation inputs. Check the downloaded archive
 against the published release hash and verify its internal inventory:
 
 ```text
-python tools/package_relink.py verify ../LORA-Tunnel-0.2.2-beta.1-relink.zip
+python tools/package_relink.py verify ../LORA-Tunnel-0.3.0-beta.1-relink.zip
 ```
 
 The local library sources used by the normal build are:
@@ -95,7 +95,7 @@ Release maintainers generate the companion from the isolated packages that
 built the preserved release images:
 
 ```text
-python tools/package_relink.py package 0.2.2-beta.1 dist/LORA-Tunnel-0.2.2-beta.1-relink.zip
+python tools/package_relink.py package 0.3.0-beta.1 dist/LORA-Tunnel-0.3.0-beta.1-relink.zip
 ```
 
 The tool reads explicit library/framework roots and versioned build artifacts;

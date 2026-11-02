@@ -8,4 +8,6 @@ bool storageReady();
 bool loggerBegin();
 bool logObservation(const Observation& observation);
 bool loggerIdle();
+// Caller owns busMutex. Refuses an active or queued session.
+bool unmountStorageForSleep();
 }

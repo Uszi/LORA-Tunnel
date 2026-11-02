@@ -1,6 +1,6 @@
 # Verified hardware target
 
-Research date: 2026-11-01. The user confirmed **WiFi LoRa 32 Expansion Kit V2, 915 MHz variant**, and subsequently confirmed **United States operation** on the same date. The first receive profile is US Meshtastic LongFast at 906.875 MHz. The purchased kit name supports the V4-R8 target; the precise PCB silkscreen, RF front-end population, GNSS marking, and physical operation still require inspection. The board configuration targets the official **HTIT-WBR8H V4.3.2** mainboard and **Expansion board V2.03** schematic. Never select the V1 expansion pin map or an ordinary V4-R2 firmware image for this configuration.
+Research date: 2026-11-01. The user confirmed **WiFi LoRa 32 Expansion Kit V2, 915 MHz variant**, and subsequently confirmed **United States operation** on the same date. Those earlier US tests used Meshtastic LongFast at 906.875 MHz. The 0.3.0 source targets the manufacturer’s 863–928 MHz hardware family and starts LoRa UNSET/off until deliberate region selection; see [REGIONS.md](REGIONS.md). The purchased kit name supports the V4-R8 target; the precise PCB silkscreen, RF front-end population, GNSS marking, and physical operation still require inspection. The board configuration targets the official **HTIT-WBR8H V4.3.2** mainboard and **Expansion board V2.03** schematic. Never select the V1 expansion pin map or an ordinary V4-R2 firmware image for this configuration.
 
 Connected-unit preflight on 2026-11-01 used esptool 5.4.0 on the confirmed device port and identified an **ESP32-S3 QFN56 revision 0.2, embedded 8 MB PSRAM (AP, 3.3 V), and 16 MB quad flash**. Secure boot and flash encryption were reported disabled. This corroborates the chip/memory target; it does not inspect the expansion PCB, establish PSRAM runtime operation, or validate the display, touch, GNSS, SD, or RF front-end. Full-flash read discrepancies, scoped recovery acquisition and later installation checks are recorded in [VALIDATION.md](VALIDATION.md).
 
@@ -51,7 +51,7 @@ All GPIOs are ESP32 GPIO numbers, not connector positions. Constants live in `in
 | Buzzer | GPIO4 -> PAM8904 DIN | Expansion schematic and manufacturer factory test agree; GPIO6 belongs to older configurations |
 | Buttons | Boot/user GPIO0; secondary GPIO46 | Button behavior and active level need physical validation |
 | Battery | ADC GPIO1; 390 kOhm / 100 kOhm divider, factor 4.9 | Mainboard schematic; no old-board ADC-enable pin required |
-| Antennas | Supplied LoRa SMA whip via kit connection; board Wi-Fi/BLE antenna; GNSS antenna on expansion | User confirmed 915 MHz hardware and United States operation; initial receive profile is US LongFast, 906.875 MHz |
+| Antennas | Supplied LoRa SMA whip via kit connection; board Wi-Fi/BLE antenna; GNSS antenna on expansion | User confirmed a 915 MHz kit; new high-band region choices require an antenna suitable for the selected frequency |
 
 **GNSS naming trap:** older master-branch comments describe `GPS_TX_PIN` and `GPS_RX_PIN` inconsistently. The actual ESP32 receive pin in this kit is **39**. The manufacturer's test and V2 schematic are the deciding evidence. Firmware uses `GNSS_RX` and `GNSS_TX` strictly from the ESP32 perspective.
 
@@ -63,7 +63,7 @@ The same schematic supplies the GNSS IPEX antenna connection from VDD_RF pin14 t
 
 On 2026-11-01 the [V2 product page](https://heltec.org/project/v4-r8-ex/) contained two misleading GNSS links: the specification-table label “Quectel L76K” opened an [ICOE CM121 manual](https://resource.heltec.cn/download/WiFi_LoRa_32_V4/datasheet/ICOE_CM121_User%20Manual_EN_R1.0.0.pdf), while “L76K GNSS Module User Manual” opened a [2015 L76-series presentation](https://resource.heltec.cn/download/Mesh_Node_T114/Quectel_L76_GNSS_Presentation_V1.4.pdf) describing PMTK. Neither linked document establishes the fitted module in this V2 unit. Use the V2 schematic for its electrical target and the [L76K CASIC/PCAS protocol](https://files.waveshare.com/upload/d/dd/Quectel_L76K_GNSS_Protocol_Specification_V1.1.pdf) for documented L76K commands. Quectel specifically distinguishes L76K's PCAS support from PMTK. [Quectel clarification](https://forums.quectel.com/t/firmware-protocol-version-for-the-l76k/40194/2)
 
-The manufacturer's factory example, unchanged for this file since commit `dc5e7f92701b80b0e30d90980820dd742b99df01`, enables GPIO42 low and starts UART9600 on RX39/TX38 without a hidden GNSS antenna/wake sequence. The manufacturer's linked Meshtastic 2.7.26 build uses additional receiver initialization after identifying its family. These are different software paths; a factory-test label saying “gps_detected” is not a validated position. LORA Tunnel's explicit version/restart/constellation controls and the recorded no-fix results are described in [GPS_DIAGNOSTICS.md](GPS_DIAGNOSTICS.md). A `SW=URANUS5,V...` response identifies firmware shared by CASIC-family receivers, not a unique physical module model. [Pinned Heltec factory test](https://github.com/HelTecAutomation/Heltec_ESP32/blob/dc5e7f92701b80b0e30d90980820dd742b99df01/examples/Factory_Test/Lora32_R8_V4.3_Exp_Board_HF/Lora32_R8_V4.3_Exp_Board_HF.ino#L784), [pinned Meshtastic initialization](https://github.com/meshtastic/firmware/blob/54e0d8d0ab2ff56b3a9ce967e53f79e49af560fb/src/gps/GPS.cpp#L528)
+The manufacturer's factory example, unchanged for this file since commit `dc5e7f92701b80b0e30d90980820dd742b99df01`, enables GPIO42 low and starts UART9600 on RX39/TX38 without a hidden GNSS antenna/wake sequence. The manufacturer's linked Meshtastic 2.7.26 build uses additional receiver initialization after identifying its family. These are different software paths; a factory-test label saying “gps_detected” is not a validated position. LORA Tunnel's explicit version/restart/constellation controls, historical no-fix windows and later physically confirmed 0.2.3-dev fix are described in [GPS_DIAGNOSTICS.md](GPS_DIAGNOSTICS.md). A `SW=URANUS5,V...` response identifies firmware shared by CASIC-family receivers, not a unique physical module model. [Pinned Heltec factory test](https://github.com/HelTecAutomation/Heltec_ESP32/blob/dc5e7f92701b80b0e30d90980820dd742b99df01/examples/Factory_Test/Lora32_R8_V4.3_Exp_Board_HF/Lora32_R8_V4.3_Exp_Board_HF.ino#L784), [pinned Meshtastic initialization](https://github.com/meshtastic/firmware/blob/54e0d8d0ab2ff56b3a9ce967e53f79e49af560fb/src/gps/GPS.cpp#L528)
 
 ## Framework and shared-bus decisions
 
@@ -85,6 +85,25 @@ The LNA setting remains configurable because gain can overload the receiver near
 
 Battery voltage uses calibrated ESP32 ADC millivolts and the schematic divider ratio. It returns unavailable for readings outside a plausible battery range. A valid voltage does not prove a battery is fitted, report charging status, or justify an accurate percentage. A unit-specific multiplier may be set only after comparison with a meter.
 
+## Hardware POWER and software sleep
+
+The V2.03 expansion schematic connects the POWER/S3 button to the EC190708
+battery-latch control rather than an ESP32 GPIO. The application cannot observe
+that hardware press early enough to guarantee a final SD save. Heltec specifies
+a roughly three-second Power hold and notes that USB can light/power the device
+even when its battery latch is off. [Official power schematic](https://resource.heltec.cn/download/WiFi_LoRa_32_Expansion_Kit-V2/schematic/Expansion_board_V2.03.pdf), [V2 quick start](https://github.com/HelTecAutomation/HeltecWiKi/blob/main/docs/devices/open-source-hardware/esp32-series/lora-32/wifi-lora-32-v4r8/quick-start.md)
+
+The 0.3.0 software provides Settings → Power → Power Off with confirmation.
+After capture and SD have stopped/closed, it disables radios, ends GNSS UART,
+unmounts SD, sleeps the screen and switches off Vext/GNSS main power before
+ESP32 deep sleep. Bus signals become inputs to avoid driving unpowered
+peripherals; held power-control levels persist through sleep. USER/GPIO0 is the
+active-low wake input. Its release is checked before sleep, and wake boots the
+application without automatically restarting capture. The GNSS V_BACK rail and
+battery remain connected, so this does not establish zero consumption or a
+receiver factory reset. Physical wake, power-rail and current measurements are
+still acceptance items for the new build.
+
 ## Physical acceptance still required
 
-Before flashing, record PCB labels and stock firmware identity, back up flash using the documented recovery procedure, and retain the matching V4-R8 TFT factory image. Initial validation must cover boot without USB, flash/PSRAM reported sizes, display color/orientation, four-corner touch, GNSS bytes/fix/time, SD read/write and failure behavior, buzzer, battery readings, and RF-front-end settings. A build pass is not any of these results.
+Before flashing, record PCB labels and stock firmware identity, back up flash using the documented recovery procedure, and retain the matching V4-R8 TFT factory image. The installed 0.2.3-dev device has since reported a fresh 3D fix with five satellites during a read-only check; that does not complete new-build or geotagged-file acceptance. Remaining validation must cover boot without USB, flash/PSRAM reported sizes, display color/orientation, four-corner touch, GNSS bytes/fix/time, SD read/write and failure behavior, buzzer, battery readings, and RF-front-end settings. A build pass is not any of these results.

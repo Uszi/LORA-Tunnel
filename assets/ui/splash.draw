@@ -1,0 +1,13 @@
+rect 0 0 240 320 33
+rect 12 5 2 8 30688
+roundoutline 8 12 17 16 2 30688
+outline 12 15 9 5 2047
+rect 12 23 9 1 30688
+text 33 9 2 30688 0 "LORA TUNNEL"
+rect 207 1 26 30 65535
+png 207 1 26 30 0.0201707 vts-official-logo.png
+text 9 32 1 31824 0 "BETA / 0.3.0-beta.1"
+png 30 48 180 180 0.143541 lora-tunnel-radio-logo.png
+text 18 234 2 2047 0 "WIFI + BLE + LORA"
+text 48 267 1 61309 0 "DRIVE / RECON / EXPLORE"
+text 12 292 1 31824 0 "Wardriver first. Built for the field."

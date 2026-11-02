@@ -1,26 +1,28 @@
 rect 0 0 240 320 33
 rect 12 5 2 8 30688
-outline 8 12 17 16 30688
+roundoutline 8 12 17 16 2 30688
 outline 12 15 9 5 2047
 rect 12 23 9 1 30688
 text 33 9 2 30688 0 "LORA TUNNEL"
+rect 207 1 26 30 65535
+png 207 1 26 30 0.0201707 vts-official-logo.png
 text 9 32 1 31824 0 "YOUR OFFLINE FIELD TERMINAL"
 rect 8 48 224 24 33
-text 9 48 1 2047 0 "SD OK NO FIX  4.05V"
-text 9 61 1 31824 0 "GNSS DATA / NO FIX / 3 VISIBLE"
-rect 8 84 224 52 2115
-outline 8 84 224 52 30688
+text 9 48 1 2047 0 "SD OK FIX  4.05V"
+text 9 61 1 30688 0 "GNSS FIX / 8 SATS / HDOP 1.2"
+roundrect 8 84 224 52 5 2115
+roundoutline 8 84 224 52 5 30688
 rect 8 93 4 34 30688
 text 22 93 2 30688 0 "WARDRIVER"
 text 22 119 1 31824 0 "Wi-Fi / BLE / LoRa session logs"
-rect 8 146 224 52 2115
-outline 8 146 224 52 2047
+roundrect 8 146 224 52 5 2115
+roundoutline 8 146 224 52 5 2047
 rect 8 155 4 34 2047
 text 22 155 2 2047 0 "RECON"
 text 22 181 1 31824 0 "Indicators / evidence / alerts"
-rect 8 208 224 34 2115
-outline 8 208 224 34 2047
-text 120 225 1 2047 1 "SETUP / CONNECTION KEYS"
+roundrect 8 208 224 34 4 2115
+roundoutline 8 208 224 34 4 2047
+text 120 225 1 2047 1 "SETTINGS / DEVICE PREFERENCES"
 rect 8 250 224 66 33
 text 9 252 1 31824 0 "Choose a mode, then start a session."
 text 9 283 1 31824 0 "IO: MOVE  USER: SELECT"

@@ -137,7 +137,7 @@
       "additionalProperties": true,
       "required": ["frequency_mhz", "bandwidth_khz", "spreading_factor", "coding_rate_denominator", "sync_word", "preamble_symbols", "profile", "lna", "rssi", "snr", "length", "crc_status", "payload_status", "raw_hex", "classification"],
       "properties": {
-        "frequency_mhz": {"type": "number", "minimum": 902, "maximum": 928},
+        "frequency_mhz": {"type": "number", "minimum": 863, "maximum": 928},
         "bandwidth_khz": {"enum": [125, 250, 500]},
         "spreading_factor": {"type": "integer", "minimum": 7, "maximum": 12},
         "coding_rate_denominator": {"type": "integer", "minimum": 5, "maximum": 8},

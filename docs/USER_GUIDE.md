@@ -1,6 +1,6 @@
 # LORA Tunnel beta user guide
 
-This guide covers the 0.2.2-beta.1 interface and offline workflow for the Heltec Expansion Kit V2 / V4-R8, 915 MHz US target. **GPS position fixing is still unresolved on the test unit.** Valid serial sentences, visible satellites or `ANTENNA OK` do not mean a valid location. Current evidence is recorded in [VALIDATION.md](VALIDATION.md).
+This guide describes the planned **0.3.0-beta.1** workflow for the Heltec Expansion Kit V2 / V4-R8 with **863–928 MHz radio hardware**. The user reported working GPS, followed by a read-only physical check of 0.2.3-dev confirming a fresh 3D fix with five satellites. Acceptance of the new build, repeatable acquisition and geotagged SD/export validation are separate checks; see [VALIDATION.md](VALIDATION.md). Uploads and full mesh payload decoding remain unfinished.
 
 ## Prepare the device
 
@@ -13,22 +13,34 @@ Prepare a FAT32 microSD card:
 3. Keep `detection_rules.json` with an empty `rules` array for the built-in Recon detections. Add custom rules only when needed.
 4. Insert the card and reboot. Configuration and custom detection changes are loaded at boot.
 
-The device writes session files under `/sessions`. Storage is required to start capture. If the card was absent at boot, insert it and choose **Setup → Retry SD**; reboot to load its configuration. A full/failed card produces visible errors or drops. Stop and wait for saving to finish before removing it.
+The device writes session files under `/sessions`. Storage is required to start capture. If the card was absent at boot, insert it and choose **Settings → Retry SD**; reboot to load its configuration. A full/failed card produces visible errors or drops. Stop and wait for saving to finish before removing it.
 
-The example enables receive-only US LongFast at 906.875 MHz. Missing configuration uses the same US defaults. If an existing configuration is invalid, the firmware tries `config.bak`; without a valid backup it disables LoRa and reports the problem. Profile names must fit 39 UTF-8 bytes. [Complete SD settings and rules](../sdcard/README.md).
+The example starts with `region: "UNSET"` and LoRa disabled. A first-run picker lets you choose a compatible region, or **Skip LoRa** and use Wi-Fi/BLE. A successfully saved Skip is remembered across reboot while LoRa stays off. The blank example leaves setup incomplete and shows the picker again if copied over the saved configuration. There is no hidden US default on a fresh installation. Existing valid US configurations from earlier versions retain their settings. Profile names must fit 39 UTF-8 bytes. [Complete SD settings and rules](../sdcard/README.md).
+
+## Choose a LoRa region
+
+Choose the region that matches the receiver's location and the network you intend to observe. The supported kit is Heltec's **863–928 MHz** variant; the separate **433 MHz** and **470–510 MHz** hardware variants cannot be made compatible by selecting a different software profile. An antenna appropriate for the chosen band is still required. [Official Heltec variants](https://heltec.org/project/v4-r8-ex/)
+
+The picker selects one standard Meshtastic **LongFast** receive profile. For example, **US** uses **906.875 MHz** and **EU_868** uses **869.525 MHz**, both with 250 kHz bandwidth, SF11 and coding rate 4/5. Eighteen high-band profiles are selectable; lower-band entries are unavailable on this build. The [full region table](REGIONS.md) includes exact frequencies, modem settings, upstream revisions and hardware compatibility. Renamed channels, manual slots and nondefault presets can use different settings.
+
+You can return to **Settings → LoRa Region** while capture is stopped and saving has finished. Applying another region replaces the radio's modem settings with that region's standard LongFast profile and LNA bypass; it leaves credentials and other valid configuration fields intact. The picker changes LoRa only. Wi-Fi observation remains on channels 1–11, and LoRa still receives one profile at a time.
+
+With a mounted card, the firmware saves and checks the SD configuration before applying the selection, then mirrors the region code to device NVS. An SD failure keeps the previous active choice. If SD succeeds but NVS fails, the choice remains durable on that card and the interface reports the partial result. Without a card, NVS must save and read back successfully. SD is still required to record sessions.
+
+At boot, a valid SD file takes precedence over NVS; a valid backup can recover a damaged primary. NVS is used only when the files are absent or the card is unavailable. Existing invalid files without a valid backup leave LoRa disabled rather than silently accepting an NVS fallback. Copying an explicit UNSET example over a configured card deliberately clears its LoRa choice. NVS retains a region code, not custom SD modem values or credentials. [Persistence and migration details](REGIONS.md#persistence-and-migration)
 
 ## Home and capture modes
 
-Home offers **Wardriver**, **Recon** and **Setup**. Selecting a mode opens its view; it does not start capture. Changing to the other mode stops the old session and finishes queued writes. Start the new mode explicitly after saving finishes.
+Home offers **Wardriver**, **Recon** and **Settings**. Selecting a mode opens its view; it does not start capture. Changing to the other mode stops the old session and finishes queued writes. Start the new mode explicitly after saving finishes.
 
-Returning Home, opening Setup or using Back alone leaves a running capture active. Home shows which mode is running. Reopen that mode to stop it.
+Returning Home, opening Settings or using Back alone leaves a running capture active. Home shows which mode is running. Reopen that mode to stop it.
 
 | Control | Action |
 | --- | --- |
 | START DRIVE / START RECON | Begin a new recording after readiness/storage checks |
 | STOP + SAVE | Stop capture and finish queued SD writes |
 | HOME | Return to mode selection while preserving an active session |
-| SETUP | Open credential entry and SD retry |
+| SETTINGS | Open LoRa region, credential entry, SD retry and shutdown |
 | WiFi / BLE / LoRa tabs | Change Wardriver's recent-observation view |
 
 ## Wardriver
@@ -70,9 +82,19 @@ The touch interface is primary. Optional physical navigation defaults to enabled
 
 Physical-button electrical/function acceptance remains pending. Set `ui.buttons_enabled` to `false` on the card if using touch only.
 
-Setup offers WiGLE API name/token, WDGWars token and Wi-Fi SSID/password fields. Tapping one opens the keyboard only when needed. Stop capture before saving. Entries are bounded to 127 bytes; Save writes a checked temporary configuration and retains a previous valid backup. Existing secret values are not displayed as a prefilled entry.
+**Settings → Connection Keys** offers WiGLE API name/token, WDGWars token and Wi-Fi SSID/password fields. Tapping one opens the keyboard only when needed. Stop capture before saving. Entries are bounded to 127 bytes; Save writes a checked temporary configuration and retains a previous valid backup. Existing secret values are not displayed as a prefilled entry.
 
 **This beta stores credentials but does not connect or upload.** Credentials are plaintext on the removable SD card; keep real `config.json`, backups and session logs out of public source archives. Leave credential fields empty if not needed.
+
+## Shutdown and wake
+
+Open **Settings → Power**, then choose **Power Off** in the confirmation. **Cancel** returns without stopping the session. The firmware stops any capture, waits for queued SD records to finish saving and the file to close, then stops the radios and GNSS, turns off the display/peripheral supplies and puts the ESP32 into deep sleep. Wait for that sequence to complete before removing power or the card. Cancelling the confirmation returns to Settings. Shutdown is a Settings action; holding USER during normal operation still means Back.
+
+A new storage error/drop while closing an active session aborts shutdown and keeps the device awake. A save that has not completed within 15 seconds also aborts. Check the displayed error before retrying. After the log is closed, a separate 15-second recovery timer restarts the application idle if radio/peripheral teardown stalls; that recovery is not a completed shutdown. Holding USER at the sleep transition is refused so it cannot create an immediate wake loop. A failure after radio teardown can require a restart before capture resumes.
+
+Press **USER** to wake from software sleep. Wake restarts the application; it does not resume the previous recording automatically. The battery remains electrically connected during deep sleep, so this is not zero-current power isolation. The GNSS backup rail can retain receiver state. Sleep-current measurement and physical wake/SD verification belong to the new-build acceptance checklist.
+
+The physical **POWER** switch is separate. Holding it for roughly three seconds controls the expansion board's hardware battery latch, which has no MCU input in the V2.03 schematic. Firmware cannot intercept that press to flush a log. USB power may keep the device powered even when the battery latch is off. Use the software shutdown or **STOP + SAVE** first; do not use a hardware cutoff as a substitute for completing the save. [Official V2.03 power schematic](https://resource.heltec.cn/download/WiFi_LoRa_32_Expansion_Kit-V2/schematic/Expansion_board_V2.03.pdf), [Heltec V2 power-button and USB quick start](https://github.com/HelTecAutomation/HeltecWiKi/blob/main/docs/devices/open-source-hardware/esp32-series/lora-32/wifi-lora-32-v4r8/quick-start.md)
 
 ## Export a session
 

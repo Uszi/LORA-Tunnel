@@ -1,16 +1,17 @@
 # Practical acceptance checklist
 
-The current source/build is 0.2.2-beta.1. Results are recorded individually below
-and by version in `VALIDATION.md`: scoped recovery acquisition, verified
-installation, USB startup, short mode/capture/Stop checks and limited user
-appearance confirmation have evidence. Full-chip backup comparison failed;
-scoped restoration remains untested. The user confirmed the 0.1.2 flicker fix
-and the distinct 0.2.0 Wardriver/Recon views and clean radio logo. Physical
-buttons, complete touch coverage, GNSS fix, known-source LoRa/Remote ID
-comparisons, SD readback/recovery, battery operation and service uploads remain
-pending. A successful build or host parser test does not establish physical
-acceptance. Mark each result with firmware hash, board/expansion revision,
-date, setup, expected result, measured result, and a pass/fail/pending status.
+This checklist covers the source being prepared for **0.3.0-beta.1**. Results
+are versioned in [VALIDATION.md](VALIDATION.md): scoped recovery acquisition,
+verified installations, short mode/capture/Stop checks and user appearance
+confirmation have evidence. A fresh 3D GPS fix was physically confirmed on
+installed 0.2.3-dev after the user reported working GPS. The new release's
+region selection, VTS header and shutdown/wake flow require separate checks.
+Full-chip backup comparison failed; scoped restoration remains untested.
+Physical buttons, complete touch coverage, repeated GPS acquisition/geotags,
+known-source LoRa/Remote ID comparisons, SD readback/recovery, battery operation
+and service uploads remain pending. A build or host parser test does not
+establish physical acceptance. Record firmware hash, board/expansion revision,
+date, setup, expected and measured result, and pass/fail/pending status.
 Use a copy of this checklist for each hardware revision.
 
 ## Baseline and recovery readiness
@@ -78,6 +79,10 @@ Use a copy of this checklist for each hardware revision.
   continued valid GNSS input and no fix, then independently restarted after
   90 seconds. Normal startup returned ready with zero errors/drops. This narrow
   test does not identify a cause or complete GPS acceptance.
+- [x] Installed 0.2.3-dev physically reported a fresh fix during capture on
+  2026-11-01: five satellites, GGA quality 1, RMC A, GSA type 3, location age
+  341 ms and 11,500 valid / zero failed checksums. No coordinates were printed.
+  This is one read-only sample, not a first-fix timing or SD-geotag test.
 - [ ] Compare per-talker complete GSV groups and C/N0 against a receiver trace,
   including missing versus zero C/N0, incomplete/out-of-order groups, group age
   and multiple signal IDs. Do not sum talker/signal reports as unique satellites
@@ -92,6 +97,37 @@ Use a copy of this checklist for each hardware revision.
 - [ ] Compare displayed battery voltage against a meter at several charge
   levels, USB connected/disconnected and with no battery if supported. Do not
   claim calibrated state of charge from voltage alone.
+
+## New-release region and shutdown acceptance
+
+- [ ] Fresh NVS and absent/new UNSET config: verify the region picker appears,
+  LoRa remains off and Wi-Fi/BLE can be used after **Skip LoRa**. Verify that
+  a successfully saved Skip survives reboot without an unrequested US fallback,
+  while a newly copied blank UNSET example prompts for setup again.
+- [ ] Select US and EU_868 in separate stopped tests. Check displayed center
+  frequency, configured modem values, SD/NVS persistence and native log metadata.
+  Use controlled reception only where hardware/antenna and test setup match.
+- [ ] Verify all lower-band entries cannot be selected on this hardware and
+  malformed region/frequency/bandwidth values cannot enable the radio.
+- [ ] Changing a region while running/saving must be refused. Check SD write
+  failure leaves the previous active choice; NVS-only selection must read back.
+- [ ] Check valid SD > valid backup > absent-file NVS precedence, explicit SD
+  UNSET, invalid-file failure, legacy US migration and preserved dummy credentials.
+- [ ] Verify the supplied VTS header mark and LORA splash remain legible and
+  touch targets are not covered on every new screen and fallback render path.
+- [ ] Open Settings Power while recording, then Cancel: capture must continue.
+  Confirm Power Off separately: capture stops, SD closes, then screen/radios/GNSS
+  switch off. Read back the complete session after waking with USER.
+- [ ] Inject a new SD error/drop or stalled save on a spare card: shutdown must
+  stay awake with an error and must not claim a successful save. Check the
+  15-second save timeout separately from the post-close teardown recovery timer.
+- [ ] Test USER held at the transition, release/retry, and USER wake with USB
+  connected and disconnected. Wake must not automatically resume recording.
+- [ ] Measure battery sleep current and peripheral supply states. Software
+  sleep leaves the battery and GNSS backup rail connected; do not assume zero.
+- [ ] After saving, compare physical three-second POWER behavior on battery
+  versus USB. The hardware latch cannot be intercepted by firmware; do not
+  treat its battery cutoff as evidence of a graceful save.
 
 ## Milestone 2: Wi-Fi and BLE observation
 
@@ -118,7 +154,7 @@ Use a copy of this checklist for each hardware revision.
 - [x] The 12-second 0.2.0 Wardriver bench reported three received LoRa packets,
   with zero reported errors/drops. This is a narrow receive-count observation;
   known-source packet comparison and Meshtastic payload decoding remain open.
-- [ ] Confirm country, 915 MHz hardware band, antenna and regional channel
+- [ ] Confirm country, 863–928 MHz hardware variant, antenna and regional channel
   before enabling LoRa. Keep disabled when the regional/profile choice is unset.
 - [ ] Record the known test transmitter's Meshtastic frequency, SF, bandwidth,
   coding rate, sync word and preamble. Match every setting on the receiver.

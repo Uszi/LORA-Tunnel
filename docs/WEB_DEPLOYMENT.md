@@ -16,7 +16,7 @@ Install `tools/site-requirements.txt`, then run `python tools/build_web.py --hel
 for the required inputs. Supply the final factory file and SHA-256, matching
 source ZIP and SHA-256, full source commit, public GitHub repository URL,
 verified relinking release URL/hash, and a new empty output directory such as
-`build-output/web-0.2.2-beta.1`. Supply `--gitea-url` only after that repository is
+`build-output/web-0.3.0-beta.1`. Supply `--gitea-url` only after that repository is
 published; omission produces an explicitly pending Gitea account link.
 
 The builder checks:

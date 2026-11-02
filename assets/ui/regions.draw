@@ -1,0 +1,44 @@
+rect 0 0 240 320 33
+rect 12 5 2 8 30688
+roundoutline 8 12 17 16 2 30688
+outline 12 15 9 5 2047
+rect 12 23 9 1 30688
+text 33 9 2 30688 0 "LORA TUNNEL"
+rect 207 1 26 30 65535
+png 207 1 26 30 0.0201707 vts-official-logo.png
+text 9 32 1 31824 0 "WELCOME / CHOOSE YOUR LORA REGION"
+text 10 50 1 2047 0 "For the 863-928 MHz hardware kit"
+text 10 65 1 31824 0 "Match your location and antenna."
+roundrect 8 86 224 35 4 30688
+roundoutline 8 86 224 35 4 30688
+text 120 103 1 33 1 ""
+text 16 90 1 33 0 "US / Canada"
+text 16 104 1 33 0 "LongFast / 906.875 MHz"
+roundrect 8 125 224 35 4 2115
+roundoutline 8 125 224 35 4 30688
+text 120 142 1 30688 1 ""
+text 16 129 1 61309 0 "Europe 868"
+text 16 143 1 31824 0 "LongFast / 869.525 MHz"
+roundrect 8 164 224 35 4 2115
+roundoutline 8 164 224 35 4 30688
+text 120 181 1 30688 1 ""
+text 16 168 1 61309 0 "Australia / NZ 915"
+text 16 182 1 31824 0 "LongFast / 919.875 MHz"
+roundrect 8 203 224 35 4 2115
+roundoutline 8 203 224 35 4 31824
+text 120 220 1 31824 1 ""
+text 16 207 1 31824 0 "China 470"
+text 16 221 1 31824 0 "Requires different radio hardware"
+roundrect 8 246 55 25 4 2115
+roundoutline 8 246 55 25 4 2047
+text 35 258 1 2047 1 "< PREV"
+text 104 253 1 31824 0 "1 / 7"
+roundrect 177 246 55 25 4 2115
+roundoutline 177 246 55 25 4 2047
+text 204 258 1 2047 1 "NEXT >"
+roundrect 8 280 108 32 4 2115
+roundoutline 8 280 108 32 4 2047
+text 62 296 1 2047 1 "SKIP LORA"
+roundrect 124 280 108 32 4 2115
+roundoutline 124 280 108 32 4 30688
+text 178 296 1 30688 1 "SAVE REGION"

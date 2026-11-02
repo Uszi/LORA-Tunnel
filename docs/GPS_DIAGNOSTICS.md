@@ -1,8 +1,12 @@
 # GNSS diagnostics
 
-GNSS positioning remains unresolved. The receiver produces checksum-valid NMEA, satellite signal reports and antenna-status messages, but no physical position fix has been confirmed with LORA Tunnel. The user reports that this same hardware previously obtained a fix with stock firmware at the same location, with USB power and its connected patch antenna facing open sky, and confirmed that this is the original antenna supplied with the kit. This does not establish a USB-power problem or a hardware fault. Version-specific observations below distinguish receiver reports from a successful fix; [VALIDATION.md](VALIDATION.md) records installation and test evidence.
+**Current status, 2026-11-01: GPS positioning is physically confirmed on installed 0.3.0-beta.1.** A read-only query at 153,181 ms uptime reported `gps_fix=1`, six satellites, GGA quality 1, RMC A and GSA fix type 3. The accepted location age was 182 ms; 1,286 sentence checksums passed and none failed in that parser epoch. No coordinates were printed. [VALIDATION.md](VALIDATION.md) records the build, verified installation and scoped capture result.
 
-The `0.2.3-dev` source adds explicit USB diagnostic controls for version identification, warm/cold restart and constellation selection. They are optional maintenance commands, separate from normal capture and automatic startup. The application does not automatically restart GNSS when it has no fix, and exposes no factory-reset command.
+The earlier 0.2.3-dev check independently recorded a fresh 3D fix with five satellites, location age 341 ms and 11,500 valid/zero failed checksums after the user reported working GPS. Both observations remain version-specific. They do not establish the cause of the earlier acquisition difficulty, repeated time to first fix, loss/reacquisition behavior or geotagged SD-file contents. Earlier no-fix windows below remain accurate historical observations; they do not describe the current result.
+
+The user previously reported a stock-firmware fix at the same location, with USB power and the original kit patch antenna connected and facing open sky. The observations did not establish a USB-power problem or a hardware fault.
+
+The controls introduced in `0.2.3-dev` and retained for `0.3.0-beta.1` provide explicit USB version identification, warm/cold restart and constellation selection. They are optional maintenance commands, separate from normal capture and automatic startup. The application does not automatically restart GNSS when it has no fix, and exposes no factory-reset command.
 
 ## Automatic output configuration
 
@@ -18,7 +22,7 @@ Quectel's L76K protocol V1.1 section 2.3.3 defines these fields as output diviso
 
 The configuration write is attempted once per parser epoch with a bounded command and sufficient UART transmit space. `output_config_attempted` records the attempt; `output_config_sent` records a complete write. Neither alone means the receiver acknowledged or applied it. Subsequent GSA/GSV/TXT reception demonstrated the output change on the connected unit. An explicit restart or constellation command begins a new parser epoch and reapplies this request after its settling period.
 
-## Explicit USB controls in 0.2.3-dev
+## Explicit USB controls
 
 Use an already verified USB serial connection, stop capture, and wait until `tunnel status` reports `running=0 saving=0`. Send one selected command, terminated by a newline; these are alternatives for individual tests, not a sequence to run automatically.
 
@@ -75,8 +79,8 @@ A later 15-second read-only helper run at approximately 257 seconds uptime passe
 
 In the installed `0.2.2-beta.1` test on 2026-11-01, the device reported both radio and display shutdown. GNSS continued producing checksum-valid sentences but no fix throughout the recorded quiet window. At about 88.8 seconds uptime, 657 checksums had passed and none failed; the final sampled GP/BD counts were zero and GL showed two visible with maximum C/N0 26 dB-Hz. Those are one snapshot, not an aggregate of the window. The independent timer restart was observed, and normal startup again reported ready, SD, touch and LoRa with zero errors/drops. A subsequent normal sample showed GP three with maximum 25 dB-Hz, BD zero and GL two with maximum 25 dB-Hz, still without a fix.
 
-That narrow 0.2.2-beta.1 comparison did not resolve GPS and does not prove or exclude a particular interference mechanism or hardware fault. No warm/cold/factory restart, baud or constellation command was sent during that earlier test. Continued same-location comparison against the previously working stock behavior remains an acceptance task.
+That narrow 0.2.2-beta.1 comparison did not resolve GPS and does not prove or exclude a particular interference mechanism or hardware fault. No warm/cold/factory restart, baud or constellation command was sent during that earlier test. Subsequent user confirmation and a fresh, physical fix check are recorded above. Repeatable acquisition and valid geotagged-log checks remain separate acceptance tasks.
 
 ## 0.2.3-dev diagnostic checkpoint, 2026-11-01
 
-The installed candidate returned the checksum-valid software value `URANUS5,V5.3.0.0` after the comma-handling repair. Separate warm-start (150 seconds), explicit all-constellation selection (120 seconds), and cold-start (300 seconds) observation windows all retained receiver-reported no-fix. Their final accepted checksum counts were respectively 1,134, 915 and 2,257, with zero failed checksums in each epoch. The cold-start final report still had GGA quality 0, RMC V and GSA type 1. This establishes command-path/diagnostic testing, not a positioning repair. Further isolated-receiver evidence is recorded in [VALIDATION.md](VALIDATION.md).
+The installed candidate returned the checksum-valid software value `URANUS5,V5.3.0.0` after the comma-handling repair. Separate warm-start (150 seconds), explicit all-constellation selection (120 seconds), and cold-start (300 seconds) observation windows all retained receiver-reported no-fix. Their final accepted checksum counts were respectively 1,134, 915 and 2,257, with zero failed checksums in each epoch. The cold-start final report still had GGA quality 0, RMC V and GSA type 1. This establishes command-path/diagnostic testing, not a positioning repair. Further isolated-receiver evidence is recorded in [VALIDATION.md](VALIDATION.md). The later user confirmation and physical fix check supersede this historical no-fix status, without retroactively changing these test results.

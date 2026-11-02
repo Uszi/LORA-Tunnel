@@ -1,20 +1,24 @@
 # LORA Tunnel touchscreen and button guide
 
-This describes the **0.2.2-beta.1** interface. Build, flash and scoped physical
-results are recorded in `VALIDATION.md`. The user confirmed that the distinct
-Wardriver/Recon views and clean radio-only logo look right on 0.2.0, following
-the earlier 0.1.2 flicker fix. Complete touch coverage, physical buttons and
-category-specific detection accuracy still need their own acceptance checks.
+This describes the interface being prepared for **0.3.0-beta.1**. Build, installation and physical results are recorded separately in [VALIDATION.md](VALIDATION.md). The user previously confirmed the distinct Wardriver/Recon views, clean radio logo and flicker fix, and subsequently confirmed working GPS. A read-only 0.2.3-dev check then verified a fresh 3D fix with five satellites. The new region picker, shutdown/wake flow, VTS header mark and updated touch coverage require their own acceptance checks. Source-rendered previews use synthetic values; they do not prove physical behavior.
+
+| Settings | First-run region picker | Power confirmation |
+| --- | --- | --- |
+| ![Simulated Settings](../assets/ui/settings.png) | ![Simulated region picker](../assets/ui/regions.png) | ![Simulated Power dialog](../assets/ui/power.png) |
+
+*Simulated views generated from the current drawing code, with synthetic values. They are not device photographs or evidence of a completed save/shutdown. [All previews and provenance](../assets/ui/README.md).*
 
 ## Home and mode selection
 
 The green radio-logo splash leads to **Home**, with **Wardriver**, **Recon** and
-**Setup**. Wardriver is the primary capture mode. Selecting a mode opens its
-controls; it does not automatically start a recording.
+**Settings**. Wardriver is the primary capture mode. Selecting a mode opens its
+controls; it does not automatically start a recording. The supplied official VTS mark appears in the upper-right header alongside the project branding; the green LORA radio remains the splash/project logo.
+
+A fresh installation first opens the region picker with **UNSET / LoRa off**. Select a compatible region or choose **Skip LoRa** to reach Home with Wi-Fi/BLE available. A successfully saved Skip is remembered across reboot, without choosing US or enabling the SX1262. An explicit blank UNSET example starts setup again.
 
 Changing to the other mode stops the old session and finishes its queued SD
 writes. Start the new mode explicitly after saving completes. Returning Home,
-opening Setup, or using Back alone does not stop a running capture. Home shows
+opening Settings, or using Back alone does not stop a running capture. Home shows
 which mode is running so it can be reopened.
 
 The screen is prepared in a fixed 153,600-byte PSRAM RGB565 buffer and transferred
@@ -33,9 +37,10 @@ focus-outline erasure between them.
   These are summaries from a bounded cache, separate from timestamped logs.
 - **START DRIVE** begins recording when initialization and storage checks pass.
   **STOP + SAVE** stops capture and finishes queued writes.
-- **HOME** returns to mode selection; **SETUP** opens credentials and SD retry.
-- The LoRa tab displays the fixed receive profile. The confirmed United States
-  default is US LongFast, 906.875 MHz. LoRa metadata/raw bytes and candidate
+- **HOME** returns to mode selection; **SETTINGS** opens LoRa region, credentials, SD retry and shutdown.
+- The LoRa tab displays the selected receive profile, or its disabled/unset
+  state. US LongFast is 906.875 MHz; EU_868 LongFast is 869.525 MHz. These are
+  examples, not a fresh-install default. LoRa metadata/raw bytes and candidate
   headers do not establish decoded Meshtastic identities or messages.
 
 Summary eviction can reset a displayed sighting count but does not erase stored
@@ -62,7 +67,7 @@ Recon result list.
   display threshold.
 - **MUTE / SOUND** changes the current buzzer setting in RAM. This does not
   rewrite the SD configuration; reboot reloads `recon.buzzer`.
-- **START RECON / STOP + SAVE**, Home and Setup work like the Wardriver controls.
+- **START RECON / STOP + SAVE**, Home and Settings work like the Wardriver controls.
 
 The grades **weak indicator**, **medium evidence** and **strong signature**
 describe the observed evidence. They are not probability scores, proof of
@@ -90,7 +95,7 @@ Touch remains available when physical navigation is disabled.
 - **USER held about 700 ms:** go Back once. Releasing it does not also select.
 - The first hardware action displays a white focus outline; a touch returns to
   ordinary touch control. Back takes priority over simultaneous button events.
-- Keyboard Back cancels and clears the temporary entry. Setup returns to its
+- Keyboard Back cancels and clears the temporary entry. Settings returns to its
   opener; evidence returns to Recon; a capture page returns Home.
 
 Both inputs use 30 ms debounce, without automatic repeat. Buttons held at
@@ -112,9 +117,17 @@ These counters accumulate since boot; session observation totals reset on Start.
 A stopped session must finish saving before card removal or power-off. Home and
 Back are navigation controls, not substitutes for Stop.
 
-## Setup and keyboard
+## Settings and keyboard
 
-Five fields are available: WiGLE API name, WiGLE API token, WDGWars token,
+**LoRa Region** opens the regional profile picker while capture is stopped and
+saving is complete. Eighteen high-band LongFast profiles are selectable; the
+433 MHz and 470–510 MHz entries are unavailable on this target. A choice is
+saved to SD when mounted and to device NVS; the result distinguishes failures.
+A mounted-card save failure leaves the active region unchanged. The save
+preserves credentials and unrelated valid settings. A valid SD file takes
+precedence on reboot. See [region profiles and persistence](REGIONS.md).
+
+**Connection Keys** contains five credential fields: WiGLE API name, WiGLE API token, WDGWars token,
 Wi-Fi SSID and Wi-Fi password. Tapping a field opens a blank replacement entry;
 stored secrets are never revealed.
 
@@ -134,6 +147,33 @@ configuration or custom rules edited externally. Built-in detectors work with
 an empty `detection_rules.json`; optional runtime additions go in that JSON file.
 The supplied vendor CSV is an evidence reference, not an automatically imported
 runtime database.
+
+## Shut Down and wake
+
+**Settings → Power** opens a confirmation with **POWER OFF** and **CANCEL**.
+Choosing **POWER OFF** requests capture Stop,
+waits for the logger to save and close, and then shuts down radios, GNSS,
+display and switched peripheral power before ESP32 deep sleep. Cancel returns
+to Settings. This action is available through Settings only; USER long-press
+continues to mean Back during normal operation.
+
+New storage errors/drops while closing a session, or a 15-second save timeout,
+abort shutdown and leave an error visible. After saving, an independent
+15-second timer restarts idle if peripheral teardown stalls. If teardown has
+already stopped the radios, a displayed failure may require a restart before
+capture can resume. Do not treat that recovery restart as successful sleep.
+
+**USER** wakes the device and restarts the application without automatically
+starting a session. Release USER before the sleep transition so it does not
+immediately wake again. Software sleep leaves the battery connected and the
+GNSS backup rail can retain state; sleep current has not been measured for the
+new release.
+
+The separate hardware **POWER** switch controls the battery latch after roughly
+three seconds. It is not connected to an MCU input, so firmware cannot intercept
+it or guarantee a final save. USB may keep the board supplied after that battery
+cutoff. Finish software shutdown or **STOP + SAVE** before a hardware cutoff.
+See [shutdown and wake](USER_GUIDE.md#shutdown-and-wake).
 
 ## Bench checks
 
@@ -155,8 +195,10 @@ maximum C/N0. Incomplete or out-of-order groups do not replace the preceding
 complete group; check its age. Missing C/N0 differs from a reported zero, and
 talker/signal groups must not be summed as unique satellites. `ANTENNA OK` and
 `ANTENNA OPEN` are parsed receiver status messages, not an independent RF-health
-measurement or proof of a position fix. The installed 0.2.1 bench check received
-complete groups and `ANTENNA OK`; it still reported no fix.
+measurement or proof of a position fix. The historical 0.2.1 bench check received
+complete groups and `ANTENNA OK` but still reported no fix. The user later
+confirmed working GPS and a read-only 0.2.3-dev check verified a fresh fix;
+those are different observations.
 
 Replace `PORT` with the confirmed device port and use a Python environment with `pyserial` installed.
 

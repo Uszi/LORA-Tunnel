@@ -20,6 +20,7 @@ validation/
 docs/PROJECT_BRIEF.txt
 assets/*.png
 !assets/lora-tunnel-radio-logo.png
+!assets/vts-official-logo.png
 node_modules/
 .venv/
 .wrangler/

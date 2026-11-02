@@ -259,4 +259,9 @@ bool logObservation(const Observation& event) {
   return true;
 }
 bool loggerIdle() { return queue && uxQueueMessagesWaiting(queue)==0 && !openSession && !busy; }
+bool unmountStorageForSleep() {
+  if(!loggerIdle()) return false;
+  SD.end(); mounted=false;
+  return true;
+}
 }

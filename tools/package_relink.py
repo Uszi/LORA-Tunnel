@@ -70,6 +70,7 @@ def application_hashes(root):
     for directory in ("src", "include", "lib", "boards"):
         paths.extend(path for path, _ in files_below(root / directory))
     paths.append(root / "assets/lora-tunnel-radio-logo.png")
+    paths.append(root / "assets/vts-official-logo.png")
     return {path.relative_to(root).as_posix(): sha(path.read_bytes()) for path in sorted(paths)}
 
 

@@ -156,6 +156,7 @@ SX1262 radio=new Module(board::LORA_CS,board::LORA_IRQ,board::LORA_RESET,board::
 std::atomic<bool> radioIRQ{false}, wifiDone{false};
 bool radioOK=false;
 bool radioInitialized=false, radioInitAttempted=false;
+bool radioBusStarted=false;
 std::atomic<bool> quietLatched{false};
 bool quietFinished=false, quietShutdownOK=false;
 enum class Phase { Idle, Wifi, ReconWifi, Ble, Guard };
@@ -422,6 +423,7 @@ void gnssBegin() {
   gpsSerial.begin(board::GNSS_BAUD,SERIAL_8N1,board::GNSS_RX,board::GNSS_TX);
   gnssUartAt=millis();
 }
+void gnssEnd() { gpsSerial.end(); }
 namespace {
 void clearGnssEpoch() {
   gnss=TinyGPSPlus{};
@@ -541,14 +543,24 @@ bool scannersBegin() {
   bleScanner->setScanCallbacks(&bleCallbacks,true);
   bleScanner->setActiveScan(false);
   bleScanner->setInterval(100); bleScanner->setWindow(80); bleScanner->setMaxResults(0);
+  scannersConfigureLoRa();
+  return true; // A disabled/faulted LoRa profile must not block Wi-Fi/BLE capture.
+}
+bool scannersConfigureLoRa() {
+  if(capturing.load() || quietLatched.load()) return false;
+  if(radioInitialized) radio.standby();
+  hw::setLoRaFrontend(false); radioOK=false; radioIRQ=false;
   if(!config.lora_enabled) return true;
-  radioBus.begin(board::LORA_SCK,board::LORA_MISO,board::LORA_MOSI,board::LORA_CS);
+  if(!radioBusStarted) {
+    radioBus.begin(board::LORA_SCK,board::LORA_MISO,board::LORA_MOSI,board::LORA_CS);
+    radioBusStarted=true;
+  }
   radioInitAttempted=true;
   const int state=radio.begin(config.frequency,config.bandwidth,config.sf,config.cr,0x2b,0,config.preamble,board::LORA_TCXO_VOLTS,false);
-  if(state!=RADIOLIB_ERR_NONE) { ++counters.radio_errors; return true; }
+  if(state!=RADIOLIB_ERR_NONE) { ++counters.radio_errors; return false; }
   radioInitialized=true;
   const int switchState=radio.setDio2AsRfSwitch(true);
-  if(switchState!=RADIOLIB_ERR_NONE) { ++counters.radio_errors; return true; }
+  if(switchState!=RADIOLIB_ERR_NONE) { ++counters.radio_errors; return false; }
   radio.setDio1Action(onRadio);
   radioOK=true;
   return true;

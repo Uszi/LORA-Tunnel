@@ -1,12 +1,13 @@
 # LORA Tunnel architecture and milestones
 
-This describes the 0.2.2-beta.1 source. Its firmware build and installation have
-passed verification; the latest component results total 73 native and 29 Python
-tests. The 0.2.0 device bench separately exercised Recon, a stopped/flushed mode
-change, Wardriver and final Stop, and the user confirmed both mode views and the
-new logo look right. These scoped checks do not complete physical acceptance.
-Exact build/device results belong in `VALIDATION.md`. The version is centralized
-in `include/version.h`.
+This describes the source being prepared for **0.3.0-beta.1**. Exact build,
+installation and physical results are versioned in [VALIDATION.md](VALIDATION.md),
+not inferred from previous passing totals. Earlier benches exercised separate
+Wardriver/Recon sessions and save ordering; user confirmation covered the views
+and flicker fix. A later read-only 0.2.3-dev check physically verified a fresh
+3D GPS fix during capture. First-run region selection, software shutdown/wake
+and the new source still require their own acceptance. The version is
+centralized in `include/version.h`.
 
 The application uses pinned PlatformIO/pioarduino, Arduino-ESP32 3.3.12,
 LovyanGFX 1.2.24, NimBLE 2.5.2, RadioLib 7.8.1, TinyGPSPlus 1.1.0 and
@@ -32,7 +33,7 @@ flowchart LR
   Fix --> Q
   Q --> Main[Main loop / classify and summarize]
   Main --> Cache[64 bounded display summaries]
-  Cache --> UI[Home / Wardriver / matched Recon / Setup]
+  Cache --> UI[Home / Wardriver / matched Recon / Settings]
   Main --> W[32-record writer queue]
   W --> Buffer[8 KiB SD write buffer]
   Buffer --> SD[Versioned JSONL sessions]
@@ -69,10 +70,15 @@ button polling and `ui::navigation()` require no SPI; actions are queued for the
 main loop rather than performing SD/radio work inside UI callbacks.
 
 The SX1262 interrupt only sets a flag. Packet read/rearm takes priority over
-ordinary result processing. Wardriver defaults to the confirmed US LongFast
-profile: 906.875 MHz, BW250, SF11, CR4/5, preamble 16, fixed sync 0x2B and LNA
-bypass. It receives one frequency/modem configuration at a time. Missed RF or
-controller packets cannot all be measured by software queue counters.
+ordinary result processing. Fresh installations leave LoRa UNSET and disabled.
+The first-run/Settings picker selects one of 18 high-band Meshtastic LongFast
+profiles from `lora_profiles.h`, with BW250, SF11, CR4/5, preamble 16, sync 0x2B
+and LNA bypass. US is 906.875 MHz; EU_868 is 869.525 MHz. Lower-band hardware
+profiles are listed but unavailable. A profile is not enabled until deliberately
+selected, and changing it requires capture stopped and the logger idle.
+See [REGIONS.md](REGIONS.md) for pinned sources and occupied-bandwidth checks.
+It receives one frequency/modem configuration at a time. Missed RF or controller
+packets cannot all be measured by software queue counters.
 
 Wardriver uses passive SDK AP scans over US channels 1–11, default 120 ms per
 channel, retaining at most 64 AP results per scan. Excess results count as
@@ -140,8 +146,10 @@ count and positive C/N0 count; missing and zero values remain distinct. Talker
 or signal reports are not a deduplicated satellite count. Exact `ANTENNA OK`
 and `ANTENNA OPEN` TXT status messages are counted separately from unknown
 text. These diagnostics retain no coordinates and do not alter fix validity.
-The installed 0.2.1 bench received complete groups and `ANTENNA OK`, while
-position fix remained unavailable.
+The historical 0.2.1 bench received complete groups and `ANTENNA OK` without a
+fix. The later 0.2.3-dev physical check verified GGA quality 1, RMC A, GSA type 3
+and a 341 ms-old location. Neither diagnostic history nor this successful sample
+establishes long-duration GPS reliability or SD-file geotag correctness.
 
 ## UI, controls and SD configuration
 
@@ -174,16 +182,25 @@ the alert threshold and an allowed winning rule, with a 30-second retained
 identity cooldown and one-second global cooldown. UI mute changes RAM; reboot
 reloads the SD setting. Credential storage/keyboard replacement uses checked
 temporary-file promotion and preserves a valid backup. Existing damaged radio
-configuration with no valid backup disables LoRa; missing configuration uses
-the confirmed US defaults.
+configuration with no valid backup disables LoRa. Missing configuration uses a
+saved NVS region when present; otherwise it stays UNSET. An explicit SD file
+wins over NVS, including explicit UNSET. Region saves preserve credentials and
+unrelated valid fields, check the SD write first when mounted, and store only
+the selected code in NVS. Successful Skip saves UNSET plus the SD
+`selection_complete` marker, distinguishing an intentional LoRa-off choice
+from unfinished setup. A mounted-card failure leaves RAM/NVS unchanged;
+without a card, NVS readback must succeed. Legacy US settings retain their
+frequency/modem values until another region is selected. The original VTS logo
+is decoded into a small cached sprite once, then drawn in the header without
+repeated PNG decoding. See [REGIONS.md](REGIONS.md) and [UI_GUIDE.md](UI_GUIDE.md).
 
 ## Stages and acceptance gates
 
 | Stage | Source capability | Remaining acceptance/work |
 | --- | --- | --- |
-|1 Hardware | Verified configuration, display/touch/GNSS/SD and voltage/buzzer adapters | Actual PCB/FEM, independent battery boot, input corners/buttons, GPS fix, SD readback/resilience |
+|1 Hardware | Verified configuration, display/touch/GNSS/SD and voltage/buzzer adapters | Actual PCB/FEM, independent battery boot, input corners/buttons, repeatable GPS/geotags, SD readback/resilience |
 |2 Wardriver | Passive Wi-Fi/BLE schedule, fixed queues, JSONL and separate summaries | Controlled-source coverage, timing, dense environments, long drives |
-|3 LoRa | Fixed receive-only profile, raw metadata and candidate headers | Known transmitter, LNA comparison, protocol confirmation and payload decode |
+|3 LoRa | Region-selected receive-only profile, raw metadata and candidate headers | First-run/persistence checks, known transmitter, LNA comparison, protocol confirmation and payload decode |
 |4 Recon/UI | Distinct pages, bounded signatures/Remote ID, SD rules, evidence grades, optional buttons and alerts | Real category/transport comparisons, false positives, buttons, full touch coverage and UI/buzzer latency |
 |5 Export/upload | Desktop WiGLE CSV and strictly gated unsigned mesh candidate JSON | Real export acceptance, on-device export, TLS uploader, explicit manual/opt-in automatic upload state |
 
@@ -199,8 +216,32 @@ After reliable fixed-profile reception, slow profile hopping can account for
 airtime and traffic density. MeshCore and optional known-key Meshtastic payload
 decoding remain later work; exported fields must never be fabricated.
 
+## Settings shutdown and wake
+
+Shutdown is a main-loop state transition requested only after the Settings
+Power confirmation. It stops capture, snapshots storage/drop counters and
+waits for the logger to close. A new storage error/drop for a session being
+closed, unavailable storage for that session, or a 15-second save timeout
+cancels shutdown while keeping the device awake. An already idle device can
+sleep without an SD card; absence of a card is not itself a pending file.
+
+After close, a separate 15-second `esp_timer` recovery guard restarts idle if
+an upstream peripheral teardown blocks. Radios are stopped before the shared
+bus is taken. Wake-source preparation must succeed with USER released; then
+SD is unmounted, the GNSS UART ends and the hardware layer sleeps the display,
+floats bus signals and holds switched peripheral power off before deep sleep.
+The L76K backup rail remains supplied. Ext0 on active-low USER/GPIO0 wakes the
+ESP32 into a fresh boot; a previous capture is not automatically resumed.
+An error after radio teardown can require reboot before capture is available.
+
+The physical POWER switch directly controls the expansion board battery latch,
+without an MCU input; it cannot be repurposed as a guaranteed save-before-off
+button. USB can supply the board independently. Software deep sleep is not a
+battery disconnect or a measured zero-current state. Electrical/runtime
+acceptance is listed in [TEST_CHECKLIST.md](TEST_CHECKLIST.md).
+
 ## Bounded diagnostic quiet state
 
-The optional `tunnel quiet` USB command requires capture stopped and the logger idle. It stops radio work and sleeps the display/backlight while the loop continues GNSS polling and status commands. It does not change GNSS power, baud, constellation or output configuration. An independent `esp_timer` callback restarts the ESP32 after 90 seconds, including if radio shutdown stalls; `tunnel resume` requests an earlier restart. It is a bounded diagnosis path, not an operating mode or GPS fix. The installed beta's narrow comparison and automatic restart are recorded in [VALIDATION.md](VALIDATION.md).
+The optional `tunnel quiet` USB command requires capture stopped and the logger idle. It stops radio work and sleeps the display/backlight while the loop continues GNSS polling and status commands. It does not change GNSS power, baud, constellation or output configuration. An independent `esp_timer` callback restarts the ESP32 after 90 seconds (`tunnel quiet-long` selects 300 seconds), including if radio shutdown stalls; `tunnel resume` requests an earlier restart. It is a bounded diagnosis path, not an operating mode or GPS fix. The installed beta's narrow comparison and automatic restart are recorded in [VALIDATION.md](VALIDATION.md).
 
 Original application code is MIT licensed. Imported code and framework components retain their own license and source/relinking requirements; see [THIRD_PARTY.md](THIRD_PARTY.md) and [RELINKING.md](RELINKING.md).

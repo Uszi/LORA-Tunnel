@@ -12,6 +12,8 @@ LORA Tunnel adopts the separation between raw radio reception and later interpre
 
 ## Fixed receive profiles first
 
+Fresh installations now require an explicit region choice; they do not default to the developer's US location. The Settings/first-setup selector uses the verified profiles and persistence rules in [REGIONS.md](REGIONS.md). This high-band build accepts 18 regional profiles in 863-928 MHz and keeps seven lower-band definitions unavailable. It remains receive-only and selects one fixed profile at a time.
+
 The SX1262 tunes one frequency/bandwidth/spreading-factor/sync-word combination at a time. A configured sync word is useful classification evidence; it is not a cryptographic protocol or sender identity check. The LoRa explicit header communicates coding rate, so the configured transmit coding rate and actual received coding rate should not be conflated. Record an actual received value only if the driver provides it. [Kismet LoRaPipe documentation](https://www.kismetwireless.net/docs/readme/datasources/lora-lorapipe/)
 
 Verified standard Meshtastic LongFast examples:

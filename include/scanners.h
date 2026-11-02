@@ -42,6 +42,9 @@ bool scannersEnterQuiet();
 void scannersTick();
 const char* scanPhase();
 bool loraReady();
+// Idle only. Retune/reinitialize LoRa after a saved region without rebooting.
+bool scannersConfigureLoRa();
+void gnssEnd();
 void gnssBegin();
 void gnssTick();
 unsigned long gnssCharacters();

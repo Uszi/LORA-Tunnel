@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 FOLDERS = ("boards", "docs", "include", "lib", "schemas", "src", "test", "tests",
            "third_party", "tools", "web", "assets/ui", ".github")
 FILES = ("README.md", "LICENSE", "platformio.ini", ".gitignore", ".gitattributes", "sdcard/README.md",
-         "assets/IMAGEGEN.md", "assets/lora-tunnel-radio-logo.png",
+         "assets/IMAGEGEN.md", "assets/lora-tunnel-radio-logo.png", "assets/vts-official-logo.png",
          "sdcard/lora-tunnel/config.example.json", "sdcard/lora-tunnel/detection_rules.json",
          "sdcard/lora-tunnel/detection_rules.example.json",
          "sdcard/lora-tunnel/vendor-prefixes.csv",

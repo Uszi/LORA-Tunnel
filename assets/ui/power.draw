@@ -1,0 +1,39 @@
+rect 0 0 240 320 33
+rect 12 5 2 8 30688
+roundoutline 8 12 17 16 2 30688
+outline 12 15 9 5 2047
+rect 12 23 9 1 30688
+text 33 9 2 30688 0 "LORA TUNNEL"
+rect 207 1 26 30 65535
+png 207 1 26 30 0.0201707 vts-official-logo.png
+text 9 32 1 31824 0 "SETTINGS / DEVICE PREFERENCES"
+roundrect 8 52 224 38 4 2115
+roundoutline 8 52 224 38 4 30688
+text 120 71 1 30688 1 "LORA REGION: US"
+roundrect 8 102 224 38 4 2115
+roundoutline 8 102 224 38 4 2047
+text 120 121 1 2047 1 "CONNECTION KEYS"
+roundrect 8 152 224 38 4 2115
+roundoutline 8 152 224 38 4 64800
+text 120 171 1 64800 1 "POWER"
+text 12 207 1 31824 0 "Power asks before stopping a drive."
+text 12 224 1 31824 0 "Region applies to LoRa reception."
+roundrect 8 280 108 32 4 2115
+roundoutline 8 280 108 32 4 2047
+text 62 296 1 2047 1 "< BACK"
+roundrect 124 280 108 32 4 2115
+roundoutline 124 280 108 32 4 30688
+text 178 296 1 30688 1 "RETRY SD"
+roundrect 8 72 224 190 8 2115
+roundoutline 8 72 224 190 8 64800
+text 17 87 1 64800 0 "POWER OFF?"
+text 17 113 1 61309 0 "Stop capture and save the session"
+text 17 129 1 61309 0 "before entering low-power sleep."
+text 17 155 1 2047 0 "Press USER to wake the device."
+text 17 173 1 31824 0 "Hardware POWER is independent."
+roundrect 16 215 98 32 4 2115
+roundoutline 16 215 98 32 4 2047
+text 65 231 1 2047 1 "CANCEL"
+roundrect 126 215 98 32 4 2115
+roundoutline 126 215 98 32 4 64800
+text 175 231 1 64800 1 "POWER OFF"

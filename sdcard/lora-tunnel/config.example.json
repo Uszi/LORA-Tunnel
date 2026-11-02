@@ -1,9 +1,11 @@
 {
   "schema": 1,
   "lora": {
-    "enabled": true,
-    "name": "US LongFast",
-    "frequency_mhz": 906.875,
+    "enabled": false,
+    "region": "UNSET",
+    "selection_complete": false,
+    "name": "Choose region",
+    "frequency_mhz": 0,
     "bandwidth_khz": 250,
     "spreading_factor": 11,
     "coding_rate_denominator": 5,

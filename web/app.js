@@ -19,7 +19,7 @@
       const [release, manifest] = await Promise.all(responses.map(response => response.json()));
       const build = manifest.builds?.[0];
       if (release.channel !== "beta" || release.version !== manifest.version ||
-          release.target !== "heltec-v4-r8-tft-us915" || release.flash_bytes !== 16777216 ||
+          release.target !== "heltec-v4-r8-tft-high-band" || release.flash_bytes !== 16777216 ||
           release.psram_bytes !== 8388608 || !/^[0-9a-f]{64}$/.test(release.factory_sha256) ||
           manifest.builds.length !== 1 || build.chipFamily !== "ESP32-S3" ||
           build.parts.length !== 1 || build.parts[0].offset !== 0 ||

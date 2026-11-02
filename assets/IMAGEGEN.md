@@ -29,4 +29,14 @@ The user confirmed that this clean radio logo looks right on the installed
 0.2.0 device. That scoped appearance confirmation is separate from the earlier
 0.1.2 flicker fix; visibility under every lighting condition and complete UI
 input acceptance have not been established. The same asset is retained in
-0.2.2-beta.1. Public UI previews are separately documented in [ui/README.md](ui/README.md); those renders use actual UI drawing code and synthetic fixtures, not image generation.
+0.3.0-beta.1. Public UI previews are separately documented in [ui/README.md](ui/README.md); those renders use actual UI drawing code and synthetic fixtures, not image generation.
+
+## Supplied VTS mark
+
+`vts-official-logo.png` is the original VTS artwork supplied by Valleytech for
+the device header. It is embedded unchanged, scaled by the display renderer
+onto a small light backing so its black shapes remain visible. It was not
+generated or redrawn. SHA-256:
+`704dc0daf32a201379dd2c18c7756b44fc3cf215ebcd9839cb7d6abfb7167748`.
+The VTS mark identifies Valleytech; software licensing does not imply trademark
+rights or endorsement of third-party products.

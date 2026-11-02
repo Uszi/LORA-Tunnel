@@ -2,6 +2,7 @@
 #include "hardware.h"
 #include "recon.h"
 #include "version.h"
+#include "lora_profiles.h"
 
 #include <Arduino.h>
 #include <esp_heap_caps.h>
@@ -12,6 +13,8 @@
 
 extern const uint8_t logoStart[] asm("_binary_assets_lora_tunnel_radio_logo_png_start");
 extern const uint8_t logoEnd[] asm("_binary_assets_lora_tunnel_radio_logo_png_end");
+extern const uint8_t vtsStart[] asm("_binary_assets_vts_official_logo_png_start");
+extern const uint8_t vtsEnd[] asm("_binary_assets_vts_official_logo_png_end");
 
 namespace {
 constexpr uint16_t BG = 0x0021, PANEL = 0x0843, GREEN = 0x77e0;
@@ -20,7 +23,7 @@ constexpr uint16_t AMBER = 0xfd20, RED = 0xf9aa, BORDER = 0x1368;
 constexpr const char* fields[] = {"WiGLE API name", "WiGLE API token",
   "WDGWars token", "Wi-Fi SSID", "Wi-Fi password"};
 
-enum class Page { Home, Wardriver, Recon, ReconDetail, Settings, Keyboard };
+enum class Page { Home, Wardriver, Recon, ReconDetail, Settings, Credentials, Regions, Keyboard };
 Page page = Page::Home, settingsParent = Page::Home;
 ui::Handler onAction = nullptr;
 int tab = 0, field = 0, keyPage = 0;
@@ -38,6 +41,11 @@ struct Detail {
 char input[128]{};
 size_t inputSize = 0;
 bool dirty = true, wasPressed = false, splashShown = false;
+bool powerDialog=false, onboardingShown=false, regionOnboarding=false;
+int regionPage=0, regionSelected=-1;
+constexpr unsigned REGIONS_PER_PAGE=4;
+lgfx::LGFX_Sprite vtsMark;
+bool vtsReady=false;
 uint32_t bootAt = 0, paintedAt = 0;
 
 constexpr int FRAME_WIDTH = 240, FRAME_HEIGHT = 320;
@@ -105,12 +113,13 @@ void heading(const char* subtitle) {
   gfx().drawRect(12, 15, 9, 5, CYAN);
   gfx().fillRect(12, 23, 9, 1, GREEN);
   label("LORA TUNNEL", 33, 9, GREEN, 2, 15);
+  if(vtsReady) vtsMark.pushSprite(&gfx(),207,1);
   label(subtitle, 9, 32, MUTED, 1, 36);
   if (!buffered) label("UI BUFFER LOW: DIRECT DISPLAY", 3, 0, AMBER, 1, 38);
 }
 
 void splash() {
-  heading("OFFLINE FIELD TERMINAL / " TUNNEL_VERSION);
+  heading("BETA / " TUNNEL_VERSION);
   const size_t size = logoEnd - logoStart;
   if (size > 24) {
     const uint32_t width = (uint32_t{logoStart[16]} << 24) |
@@ -176,7 +185,7 @@ void home(const ui::Model& m) {
            "Wi-Fi / BLE / LoRa session logs", GREEN);
   modeCard(146, "RECON", m.running && m.recon ? "SESSION RUNNING / TAP TO RETURN" :
            "Indicators / evidence / alerts", CYAN);
-  button(8, 208, 224, 34, "SETUP / CONNECTION KEYS", CYAN);
+  button(8, 208, 224, 34, "SETTINGS / DEVICE PREFERENCES", CYAN);
   gfx().fillRect(8, 250, 224, 66, BG);
   if (m.notice[0]) label(m.notice, 9, 252, AMBER, 1, 37);
   else label(m.running ? "Capture continues while on Home." : "Choose a mode, then start a session.",
@@ -342,6 +351,20 @@ void reconDetail() {
 }
 
 void settings(const ui::Model& m) {
+  heading("SETTINGS / DEVICE PREFERENCES");
+  char region[40];
+  snprintf(region,sizeof(region),"LORA REGION: %s",m.region_configured?m.region:"CHOOSE");
+  button(8,52,224,38,region,GREEN);
+  button(8,102,224,38,"CONNECTION KEYS",CYAN);
+  button(8,152,224,38,"POWER",AMBER);
+  label("Power asks before stopping a drive.",12,207,MUTED,1,36);
+  label("Region applies to LoRa reception.",12,224,MUTED,1,36);
+  if(m.notice[0]) wrapped(m.notice,12,246,sizeof(m.notice),AMBER);
+  button(8,280,108,32,"< BACK",CYAN);
+  button(124,280,108,32,"RETRY SD",GREEN);
+}
+
+void credentials(const ui::Model& m) {
   heading("SD CONFIG / CONNECTION KEYS");
   if (!buffered) gfx().fillRect(0, 250, FRAME_WIDTH, 24, BG);
   for (int i = 0; i < 5; ++i) button(8, 48 + i * 34, 224, 29, fields[i], i < 3 ? GREEN : CYAN);
@@ -350,6 +373,56 @@ void settings(const ui::Model& m) {
   if (m.notice[0]) label(m.notice, 12, 253, AMBER, 1, 36);
   button(8, 280, 108, 32, "< BACK", CYAN);
   button(124, 280, 108, 32, "RETRY SD", GREEN);
+}
+
+void openRegions(const ui::Model& m,bool firstRun) {
+  regionOnboarding=firstRun; regionSelected=-1; regionPage=0;
+  for(size_t i=0;i<tunnel::lora_profiles::profileCount;++i)
+    if(!strcmp(m.region,tunnel::lora_profiles::profiles[i].code)) {
+      regionSelected=int(i); regionPage=i/REGIONS_PER_PAGE; break;
+    }
+  setPage(Page::Regions);
+}
+void regions(const ui::Model& m) {
+  heading(regionOnboarding?"WELCOME / CHOOSE YOUR LORA REGION":"SETTINGS / LORA RECEIVE REGION");
+  label("For the 863-928 MHz hardware kit",10,50,CYAN,1,37);
+  label(m.running?"Stop the session before changing.":"Match your location and antenna.",10,65,m.running?AMBER:MUTED,1,37);
+  const unsigned pages=(tunnel::lora_profiles::profileCount+REGIONS_PER_PAGE-1)/REGIONS_PER_PAGE;
+  for(unsigned row=0;row<REGIONS_PER_PAGE;++row) {
+    const unsigned index=regionPage*REGIONS_PER_PAGE+row;
+    if(index>=tunnel::lora_profiles::profileCount) break;
+    const auto& profile=tunnel::lora_profiles::profiles[index];
+    const bool available=tunnel::lora_profiles::selectable(profile);
+    const bool selected=regionSelected==int(index);
+    button(8,86+row*39,224,35,"",available?GREEN:MUTED,selected);
+    label(profile.label,16,90+row*39,selected?BG:(available?WHITE:MUTED),1,34);
+    char frequency[40];
+    if(available) snprintf(frequency,sizeof(frequency),"LongFast / %.3f MHz",profile.frequency_mhz);
+    else strlcpy(frequency,"Requires different radio hardware",sizeof(frequency));
+    label(frequency,16,104+row*39,selected?BG:MUTED,1,34);
+  }
+  button(8,246,55,25,"< PREV",CYAN);
+  char count[24]; snprintf(count,sizeof(count),"%u / %u",regionPage+1,pages);
+  label(count,104,253,MUTED,1,12);
+  button(177,246,55,25,"NEXT >",CYAN);
+  button(8,280,108,32,regionOnboarding?"SKIP LORA":"< BACK",CYAN);
+  button(124,280,108,32,"SAVE REGION",regionSelected<0?MUTED:GREEN);
+}
+void powerPopup(const ui::Model& m) {
+  gfx().fillRoundRect(8,72,224,190,8,PANEL);
+  gfx().drawRoundRect(8,72,224,190,8,AMBER);
+  label(m.shutting_down?"SAVING + SHUTTING DOWN":"POWER OFF?",17,87,AMBER,1,35);
+  label("Stop capture and save the session",17,113,WHITE,1,34);
+  label("before entering low-power sleep.",17,129,WHITE,1,34);
+  label("Press USER to wake the device.",17,155,CYAN,1,34);
+  label("Hardware POWER is independent.",17,173,MUTED,1,34);
+  if(m.shutdown_error[0]) label(m.shutdown_error,17,194,AMBER,1,34);
+  if(m.shutting_down) {
+    label("Please wait for SD writes...",17,221,AMBER,1,33);
+  } else {
+    button(16,215,98,32,"CANCEL",CYAN);
+    button(126,215,98,32,"POWER OFF",AMBER);
+  }
 }
 
 const char* keyRow(int row) {
@@ -399,6 +472,13 @@ void append(char value) {
 }
 
 void touchAction(uint16_t x, uint16_t y, const ui::Model& m) {
+  if(powerDialog || m.shutting_down) {
+    if(!m.shutting_down) {
+      if(inside(x,y,16,215,98,32)) { powerDialog=false; fullClearNeeded=true; }
+      else if(inside(x,y,126,215,98,32) && onAction) onAction(ui::Action::Shutdown,0,"");
+    }
+    dirty=true; return;
+  }
   if (page == Page::Home) {
     const bool drive = inside(x, y, 8, 84, 224, 52);
     const bool reconChoice = inside(x, y, 8, 146, 224, 52);
@@ -443,10 +523,33 @@ void touchAction(uint16_t x, uint16_t y, const ui::Model& m) {
   } else if (page == Page::ReconDetail) {
     if (inside(x, y, 8, 280, 224, 32)) setPage(Page::Recon);
   } else if (page == Page::Settings) {
+    if(inside(x,y,8,52,224,38)) openRegions(m,false);
+    else if(inside(x,y,8,102,224,38)) setPage(Page::Credentials);
+    else if(inside(x,y,8,152,224,38)) { powerDialog=true; focusIndex=-1; }
+    else if(inside(x,y,8,280,108,32)) setPage(settingsParent);
+    else if(inside(x,y,124,280,108,32) && onAction) onAction(ui::Action::RetryStorage,0,"");
+  } else if (page == Page::Regions) {
+    for(unsigned row=0;row<REGIONS_PER_PAGE;++row) {
+      const unsigned i=regionPage*REGIONS_PER_PAGE+row;
+      if(i<tunnel::lora_profiles::profileCount && inside(x,y,8,86+row*39,224,35) &&
+         tunnel::lora_profiles::selectable(tunnel::lora_profiles::profiles[i])) regionSelected=i;
+    }
+    const unsigned pages=(tunnel::lora_profiles::profileCount+REGIONS_PER_PAGE-1)/REGIONS_PER_PAGE;
+    if(inside(x,y,8,246,55,25)) { regionPage=(regionPage+pages-1)%pages; focusIndex=-1; }
+    else if(inside(x,y,177,246,55,25)) { regionPage=(regionPage+1)%pages; focusIndex=-1; }
+    else if(inside(x,y,8,280,108,32)) {
+      if(regionOnboarding && onAction) onAction(ui::Action::SaveRegion,0,"UNSET");
+      setPage(regionOnboarding?Page::Home:Page::Settings);
+    }
+    else if(inside(x,y,124,280,108,32) && regionSelected>=0 && !m.running && onAction) {
+      onAction(ui::Action::SaveRegion,0,tunnel::lora_profiles::profiles[regionSelected].code);
+      setPage(regionOnboarding?Page::Home:Page::Settings);
+    }
+  } else if (page == Page::Credentials) {
     for (int i = 0; i < 5; ++i) if (inside(x, y, 8, 48 + i * 34, 224, 29)) {
       eraseInput(); field = i; keyPage = 0; setPage(Page::Keyboard);
     }
-    if (inside(x, y, 8, 280, 108, 32)) setPage(settingsParent);
+    if (inside(x, y, 8, 280, 108, 32)) setPage(Page::Settings);
     if (inside(x, y, 124, 280, 108, 32) && onAction) onAction(ui::Action::RetryStorage, 0, "");
   } else {
     for (int row = 0; row < 5; ++row) {
@@ -458,17 +561,20 @@ void touchAction(uint16_t x, uint16_t y, const ui::Model& m) {
     if (inside(x, y, 8, 247, 68, 26)) { keyPage = keyPage == 1 ? 0 : 1; focusIndex = -1; }
     if (inside(x, y, 86, 247, 68, 26)) { keyPage = keyPage == 2 ? 0 : 2; focusIndex = -1; }
     if (inside(x, y, 164, 247, 68, 26) && inputSize) input[--inputSize] = 0;
-    if (inside(x, y, 8, 282, 108, 30)) { eraseInput(); setPage(Page::Settings); }
+    if (inside(x, y, 8, 282, 108, 30)) { eraseInput(); setPage(Page::Credentials); }
     if (inside(x, y, 124, 282, 108, 30)) {
       if (onAction) onAction(ui::Action::SaveCredential, field, input);
-      eraseInput(); setPage(Page::Settings);
+      eraseInput(); setPage(Page::Credentials);
     }
   }
   dirty = true;
 }
 
 void back() {
-  if (page == Page::Keyboard) { eraseInput(); setPage(Page::Settings); }
+  if(powerDialog) { powerDialog=false; fullClearNeeded=true; dirty=true; return; }
+  if (page == Page::Keyboard) { eraseInput(); setPage(Page::Credentials); }
+  else if(page==Page::Credentials) setPage(Page::Settings);
+  else if(page==Page::Regions) setPage(regionOnboarding?Page::Home:Page::Settings);
   else if (page == Page::Settings) setPage(settingsParent);
   else if (page == Page::ReconDetail) setPage(Page::Recon);
   else if (page != Page::Home) setPage(Page::Home);
@@ -480,6 +586,10 @@ size_t focusTargets(const ui::Model& m, Rect targets[MAX_TARGETS]) {
     if (count < MAX_TARGETS) targets[count++] = Rect{static_cast<uint16_t>(x), static_cast<uint16_t>(y),
         static_cast<uint16_t>(width), static_cast<uint16_t>(height)};
   };
+  if(powerDialog || m.shutting_down) {
+    if(!m.shutting_down) { add(16,215,98,32); add(126,215,98,32); }
+    return count;
+  }
   if (page == Page::Home) {
     add(8, 84, 224, 52); add(8, 146, 224, 52); add(8, 208, 224, 34);
   } else if (page == Page::Wardriver || page == Page::Recon) {
@@ -499,6 +609,17 @@ size_t focusTargets(const ui::Model& m, Rect targets[MAX_TARGETS]) {
   } else if (page == Page::ReconDetail) {
     add(8, 280, 224, 32);
   } else if (page == Page::Settings) {
+    add(8,52,224,38); add(8,102,224,38); add(8,152,224,38);
+    add(8,280,108,32); add(124,280,108,32);
+  } else if (page == Page::Regions) {
+    for(unsigned row=0;row<REGIONS_PER_PAGE;++row) {
+      const unsigned i=regionPage*REGIONS_PER_PAGE+row;
+      if(i<tunnel::lora_profiles::profileCount && tunnel::lora_profiles::selectable(tunnel::lora_profiles::profiles[i]))
+        add(8,86+row*39,224,35);
+    }
+    add(8,246,55,25); add(177,246,55,25); add(8,280,108,32);
+    if(regionSelected>=0 && !m.running) add(124,280,108,32);
+  } else if (page == Page::Credentials) {
     for (int i = 0; i < 5; ++i) add(8, 48 + i * 34, 224, 29);
     add(8, 280, 108, 32); add(124, 280, 108, 32);
   } else {
@@ -535,6 +656,7 @@ void begin(Handler handler) {
   splashShown = false;
   wasPressed = false;
   page = Page::Home; settingsParent = Page::Home;
+  powerDialog=false; onboardingShown=false; regionOnboarding=false;
   tab = 0; reconFilter = 0; reconPage = 0;
   focusIndex = -1; focusVisible = false;
   previousFocusDrawn = false;
@@ -554,9 +676,24 @@ void begin(Handler handler) {
   }
   gfx().setTextWrap(false, false);
   gfx().setFont(&lgfx::fonts::Font0);
+  // Decode the supplied logo once, then push a tiny cached mark in each header.
+  // The original PNG is embedded unchanged; no scan-time PNG decoding occurs.
+  vtsMark.setPsram(true); vtsMark.setColorDepth(16);
+  if(vtsMark.createSprite(26,30)) {
+    // Preserve the supplied black/transparent artwork on a legible light badge.
+    vtsMark.fillScreen(0xffff);
+    const size_t length=vtsEnd-vtsStart;
+    if(length>24) {
+      const uint32_t w=(uint32_t(vtsStart[16])<<24)|(uint32_t(vtsStart[17])<<16)|(uint32_t(vtsStart[18])<<8)|vtsStart[19];
+      const uint32_t h=(uint32_t(vtsStart[20])<<24)|(uint32_t(vtsStart[21])<<16)|(uint32_t(vtsStart[22])<<8)|vtsStart[23];
+      if(w && h && w<=4096 && h<=4096)
+        vtsReady=vtsMark.drawPng(vtsStart,length,0,0,26,30,0,0,std::min(26.0f/w,30.0f/h));
+    }
+  }
 }
 
 void navigation(uint8_t events, const Model& model) {
+  if(model.shutting_down) return;
   if (!model.buttons_enabled) {
     if (focusVisible) { focusVisible = false; focusIndex = -1; dirty = true; }
     return;
@@ -591,6 +728,10 @@ void tick(const Model& model) {
   }
   const uint32_t now = millis();
   if (now - bootAt < 1400) return;
+  if(!onboardingShown) {
+    onboardingShown=true;
+    if(!model.region_selection_made) openRegions(model,true);
+  }
   uint16_t x, y;
   const bool pressed = hw::touch(x, y);
   if (pressed && !wasPressed) {
@@ -614,7 +755,10 @@ void tick(const Model& model) {
   else if (page == Page::Recon) recon(model);
   else if (page == Page::ReconDetail) reconDetail();
   else if (page == Page::Settings) settings(model);
+  else if (page == Page::Credentials) credentials(model);
+  else if (page == Page::Regions) regions(model);
   else keyboard();
+  if(powerDialog || model.shutting_down) powerPopup(model);
   drawFocus(model);
   gfx().endWrite();
   present();

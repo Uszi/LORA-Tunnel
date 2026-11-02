@@ -13,15 +13,22 @@
       "additionalProperties": true,
       "required": ["enabled"],
       "properties": {
-        "enabled": {"type": "boolean", "default": true, "description": "This project defaults to receive-only US LongFast after the user's confirmation of US operation and 915 MHz Expansion V2 hardware. Verify the actual unit and antenna before reception."},
-        "name": {"type": "string", "maxLength": 39},
-        "frequency_mhz": {"type": "number", "minimum": 902, "maximum": 928, "default": 906.875},
+        "enabled": {"type": "boolean", "default": false, "description": "Fresh installations keep LoRa off until an explicit region selection. This firmware only receives; it never transmits."},
+        "selection_complete": {"type": "boolean", "default": false, "description": "An explicit Skip saves true with region UNSET, completing first setup while leaving LoRa disabled. Supported named regions and valid legacy US configurations also count as a completed choice."},
+        "region": {"enum": ["UNSET", "US", "EU_868", "ANZ", "CN", "JP", "KR", "TW", "RU", "IN", "NZ_865", "TH", "UA_868", "MY_919", "SG_923", "PH_868", "PH_915", "KZ_863", "NP_865", "BR_902", "EU_433", "ANZ_433", "UA_433", "MY_433", "PH_433", "KZ_433"], "default": "UNSET", "description": "Omitted on legacy schema-1 files: enabled or explicit-frequency configs retain previous US settings; a bare disabled config remains UNSET. 433/470 MHz profiles require other hardware and cannot be enabled on this 863-928 MHz target."},
+        "name": {"type": "string", "maxLength": 39, "description": "Firmware limit is 39 UTF-8 bytes, not arbitrary Unicode characters."},
+        "frequency_mhz": {"type": "number", "anyOf": [{"const": 0}, {"minimum": 433, "maximum": 928}], "description": "UNSET uses zero. A named region defaults to its LongFast center when omitted; firmware also requires the full selected bandwidth to fit that region. Legacy configs without region remain limited to 902-928 MHz."},
         "bandwidth_khz": {"enum": [125, 250, 500], "default": 250},
         "spreading_factor": {"type": "integer", "minimum": 7, "maximum": 12, "default": 11},
         "coding_rate_denominator": {"type": "integer", "minimum": 5, "maximum": 8, "default": 5},
         "preamble_symbols": {"type": "integer", "minimum": 8, "maximum": 64, "default": 16},
         "lna": {"type": "boolean", "default": false}
-      }
+      },
+      "allOf": [
+        {"if": {"required": ["region"], "properties": {"region": {"const": "UNSET"}}}, "then": {"properties": {"enabled": {"const": false}, "frequency_mhz": {"const": 0}}}},
+        {"if": {"required": ["region"], "properties": {"region": {"enum": ["CN", "EU_433", "ANZ_433", "UA_433", "MY_433", "PH_433", "KZ_433"]}}}, "then": {"properties": {"enabled": {"const": false}}}},
+        {"if": {"not": {"required": ["region"]}}, "then": {"properties": {"frequency_mhz": {"minimum": 902, "maximum": 928}}}}
+      ]
     },
     "schedule": {
       "type": "object",

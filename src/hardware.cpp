@@ -4,7 +4,9 @@
 
 #include <Wire.h>
 #include <driver/gpio.h>
+#include <driver/rtc_io.h>
 #include <driver/spi_master.h>
+#include <esp_sleep.h>
 #include <cmath>
 
 namespace {
@@ -67,6 +69,27 @@ bool hasTouch = false;
 tunnel::ButtonInput userButton;
 tunnel::ButtonInput secondaryButton(false);
 
+struct SleepOutput { int pin; int level; };
+constexpr SleepOutput sleepOutputs[]={
+  {board::VEXT_ENABLE,HIGH}, {board::GNSS_ENABLE,HIGH},
+  {board::LCD_BACKLIGHT,LOW}, {board::FEM_ENABLE,LOW},
+  {board::FEM_POWER,LOW}, {board::FEM_CTX,LOW},
+  {board::LORA_RESET,LOW}, {board::BUZZER,LOW}
+};
+
+void releaseSleepHolds() {
+  gpio_deep_sleep_hold_dis();
+  // Set the desired safe level before releasing retained pads on a sleep wake.
+  // Do this on every boot so a reset after sleep preparation also recovers.
+  for(const auto& output:sleepOutputs) {
+    const auto pin=static_cast<gpio_num_t>(output.pin);
+    gpio_set_level(pin,output.level);
+    gpio_set_direction(pin,GPIO_MODE_OUTPUT);
+    gpio_hold_dis(pin);
+  }
+  rtc_gpio_deinit(static_cast<gpio_num_t>(board::USER_BUTTON));
+}
+
 bool buttonPressed(int pin, bool activeLow) {
   const bool high = digitalRead(pin) == HIGH;
   return activeLow ? !high : high;
@@ -83,6 +106,7 @@ void outputLevel(int pin, int level) {
 
 namespace hw {
 bool begin() {
+  releaseSleepHolds();
   // Keep the front-end disabled throughout boot and hardware diagnostics.
   outputLevel(board::FEM_ENABLE, LOW);
   outputLevel(board::FEM_POWER, LOW);
@@ -183,5 +207,65 @@ void setLoRaFrontend(bool enabled, bool lna) {
   digitalWrite(board::FEM_POWER, HIGH);
   delay(2);
   digitalWrite(board::FEM_ENABLE, HIGH);
+}
+
+bool prepareSleepHardware() {
+  const auto wake=static_cast<gpio_num_t>(board::USER_BUTTON);
+  // Never enter an immediate sleep/wake loop while the wake button is held.
+  if(buttonPressed(board::USER_BUTTON,board::USER_BUTTON_ACTIVE_LOW) ||
+     !esp_sleep_is_valid_wakeup_gpio(wake)) return false;
+  bool ok=esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL)==ESP_OK;
+  if(ok) ok=rtc_gpio_init(wake)==ESP_OK;
+  if(ok) ok=rtc_gpio_set_direction(wake,RTC_GPIO_MODE_INPUT_ONLY)==ESP_OK;
+  if(ok) ok=rtc_gpio_pulldown_dis(wake)==ESP_OK;
+  if(ok) ok=rtc_gpio_pullup_en(wake)==ESP_OK;
+  if(ok) ok=esp_sleep_enable_ext0_wakeup(wake,0)==ESP_OK;
+  if(ok && rtc_gpio_get_level(wake)==0) ok=false;
+  if(!ok) cancelSleepPreparation();
+  return ok;
+}
+
+void cancelSleepPreparation() {
+  esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_EXT0);
+  rtc_gpio_deinit(static_cast<gpio_num_t>(board::USER_BUTTON));
+  pinMode(board::USER_BUTTON,INPUT_PULLUP);
+}
+
+[[noreturn]] void enterDeepSleep() {
+  // The caller has already saved/unmounted SD and stopped asynchronous users.
+  noTone(board::BUZZER);
+  screen.waitDMA();
+  screen.setBrightness(0);
+  screen.sleep();
+  screen.waitDisplay();
+  Wire.end();
+  peripheralBus.end();
+  hasTouch=false;
+
+  // Drive no SPI/I2C/UART signal high into a peripheral whose rail is removed.
+  // No pin in this list is a flash/PSRAM/USB signal or the USER wake source.
+  constexpr int floatingPins[]={
+    board::LCD_SCK,board::LCD_MOSI,board::LCD_MISO,board::LCD_CS,
+    board::LCD_DC,board::LCD_RESET,board::SD_CS,
+    board::TOUCH_SDA,board::TOUCH_SCL,
+    board::GNSS_RX,board::GNSS_TX,board::GNSS_PPS,
+    board::LORA_SCK,board::LORA_MOSI,board::LORA_MISO,board::LORA_CS,
+    board::LORA_IRQ,board::LORA_BUSY
+  };
+  for(int pin:floatingPins) {
+    pinMode(pin,INPUT);
+    gpio_set_pull_mode(static_cast<gpio_num_t>(pin),GPIO_FLOATING);
+  }
+  // Remove the FEM enable before its power and hold SX1262 reset low. VEXT and
+  // GNSS are active-low power controls; the L76K backup supply remains present.
+  outputLevel(board::FEM_ENABLE,LOW);
+  outputLevel(board::FEM_POWER,LOW);
+  for(const auto& output:sleepOutputs) {
+    outputLevel(output.pin,output.level);
+    gpio_hold_en(static_cast<gpio_num_t>(output.pin));
+  }
+  // S3 digital pads need both per-pad hold and this deep-sleep hold enable.
+  gpio_deep_sleep_hold_en();
+  esp_deep_sleep_start();
 }
 }

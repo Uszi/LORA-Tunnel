@@ -20,12 +20,12 @@ import markdown
 
 ROOT = Path(__file__).resolve().parents[1]
 SITE = "https://valleytech-lora-tunnel.pages.dev/"
-TARGET = "heltec-v4-r8-tft-us915"
+TARGET = "heltec-v4-r8-tft-high-band"
 MAX_FILE = 25 * 1024 * 1024
 VERSION_RE = re.compile(r'#define TUNNEL_VERSION "([0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+)"')
 GUIDES = ("USER_GUIDE", "UI_GUIDE", "HARDWARE", "WEB_FLASHER", "RECOVERY",
           "EXPORTS", "RECON", "THIRD_PARTY", "VALIDATION", "LOG_FORMAT",
-          "ARCHITECTURE", "TEST_CHECKLIST", "GPS_DIAGNOSTICS", "LORA", "RELINKING")
+          "ARCHITECTURE", "TEST_CHECKLIST", "GPS_DIAGNOSTICS", "LORA", "RELINKING", "REGIONS")
 
 
 def digest(data):
@@ -167,7 +167,7 @@ def build(args):
     if output.exists() and any(output.iterdir()):
         raise ValueError("Output must be empty; existing sites are never deleted or overwritten")
     output.mkdir(parents=True, exist_ok=True)
-    factory_name = f"LORA-Tunnel-{version}-Heltec-V4-R8-TFT-US915-FACTORY-0x0.bin"
+    factory_name = f"LORA-Tunnel-{version}-Heltec-V4-R8-TFT-HIGH-BAND-FACTORY-0x0.bin"
     source_name = f"LORA-Tunnel-{version}-source.zip"
     sd_name = f"LORA-Tunnel-{version}-SD-setup.zip"
     tokens = {"VERSION": version, "FACTORY": factory_name, "SOURCE": source_name,
@@ -200,7 +200,9 @@ def build(args):
             raise ValueError("Installer dependency hash mismatch: " + name)
     (output / "assets/ui").mkdir(parents=True, exist_ok=True)
     (output / "assets/logo.png").write_bytes(sources["assets/lora-tunnel-radio-logo.png"])
-    for name in ("home.png", "wardriver.png", "recon.png", "detail.png", "settings.png", "keyboard.png", "overview.png"):
+    (output / "assets/vts-official-logo.png").write_bytes(sources["assets/vts-official-logo.png"])
+    for name in ("home.png", "wardriver.png", "recon.png", "detail.png", "settings.png", "keyboard.png",
+                 "regions.png", "power.png", "credentials.png", "splash.png", "overview.png"):
         (output / "assets/ui" / name).write_bytes(sources["assets/ui/" + name])
     downloads = output / "downloads"
     downloads.mkdir()
@@ -227,7 +229,7 @@ def build(args):
                "source_file": source_name, "source_sha256": args.source_sha256,
                "source_commit": args.commit, "github": github, "gitea": gitea,
                "relink_url": args.relink_url, "relink_sha256": args.relink_sha256,
-               "physical_limits": ["GNSS position fix not obtained", "physical buttons pending",
+               "physical_limits": ["new Settings shutdown and USER wake awaiting physical acceptance", "international profiles awaiting regional reception tests",
                                    "service uploads not implemented", "complete Meshtastic payload decoding not implemented"]}
     (output / "release.json").write_text(json.dumps(release, indent=2) + "\n", encoding="utf-8")
     guides = {"README.md": "README.html", "sdcard/README.md": "SD_SETUP.html"}
@@ -244,7 +246,7 @@ def build(args):
             resolved = posixpath.normpath(posixpath.join(posixpath.dirname(source), unquote(parsed.path)))
             if resolved in guides:
                 link = guides[resolved]
-            elif (resolved.startswith("assets/ui/") and resolved.endswith(".png")) or resolved == "assets/lora-tunnel-radio-logo.png":
+            elif (resolved.startswith("assets/ui/") and resolved.endswith(".png")) or resolved in ("assets/lora-tunnel-radio-logo.png","assets/vts-official-logo.png"):
                 link = "../" + ("assets/logo.png" if resolved.endswith("radio-logo.png") else resolved)
             elif resolved == "LICENSE":
                 link = "../LICENSE.txt"

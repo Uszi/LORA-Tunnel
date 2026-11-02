@@ -1,23 +1,59 @@
 {
   "generated_date": "2026-11-01",
-  "firmware_version": "0.2.2-beta.1",
+  "firmware_version": "0.3.0-beta.1",
   "source": "src/ui.cpp",
-  "source_sha256": "9dc0e987102155a81dc06f73402bcd2bb3279c730b991b46c2d7101036ac20d0",
-  "data": "Synthetic fixture only; no captured network identifiers, coordinates or credentials.",
-  "renderer": "Actual ui.cpp draw calls captured by a host stub, then rasterized with Pillow. Host Consolas font approximates embedded Font0; rounded rectangles are approximated as rectangles.",
+  "source_sha256": "e90619e3d20aedd1a17de16cdfce20f3e9e41fde9df4a3f4a2a34da14f112cda",
+  "sources": {
+    "src/ui.cpp": "e90619e3d20aedd1a17de16cdfce20f3e9e41fde9df4a3f4a2a34da14f112cda",
+    "include/ui.h": "9a27e98f57caf9a9b4f14f0d91ee4a17104c66eeac4fcc91b3b76870adf94367",
+    "include/version.h": "e1de3ba2a290bf1aeb7f6c0005e8aaa11fb939f54a313d29ad060a523f159ee1",
+    "include/lora_profiles.h": "c0baa07259c8e219d8eb55486006598d2d97e9a125ec542d00ef3828aed0fcfb",
+    "lib/recon/src/TunnelRecon.cpp": "878d06bb00e3c3a31ab67da36aef46d2d06b8b67055c7b6b5653baddb2defa40",
+    "assets/lora-tunnel-radio-logo.png": "aa0c01fb449e94c32a28888532e7ce644632cf1254316de7ab320d8d0b92c749",
+    "assets/vts-official-logo.png": "704dc0daf32a201379dd2c18c7756b44fc3cf215ebcd9839cb7d6abfb7167748"
+  },
+  "data": "Simulated UI with synthetic counters, GPS/UTC/battery state and observation labels only. No captured network identifiers, coordinates or credentials.",
+  "renderer": "Actual ui.cpp compiled against a temporary host drawing stub, then rasterized with Pillow. ASCII glyphs come from installed LovyanGFX 1.2.24 Font0 bitmap. Rounded primitives and PNG resampling approximate library/display rasterization; no physical-device rendering claim.",
+  "original_assets": "The supplied VTS PNG and project radio PNG were embedded/read without modification. Their normal draw positions/scales and the VTS white sprite backing come from ui.cpp.",
+  "font": {
+    "source": "LovyanGFX 1.2.24/src/lgfx/Fonts/glcdfont.h",
+    "sha256": "f11beeaa06b8eb7605e9192636bbe6f9f810f7281aa24406f26109a7011e9ceb",
+    "notice": "FONT-LICENSE.txt"
+  },
+  "host_validation": {
+    "compiler": "MinGW-W64 GCC 5.1.0, C++14, -Wall -Wextra -Werror",
+    "assertions_passed": 314,
+    "scope": "Ad hoc UI harness assertions; not additional PlatformIO native test cases or physical input tests. Navigation emitted zero graphics calls. First-run selection, unavailable profile, modal confirmation, keyboard cancellation and control bounds checked."
+  },
+  "harness_sha256": {
+    "review.cpp": "7f0b4666e0ba46cc6ba9aa42b4752b11cb773c856d351596df45d64237653ee0",
+    "hardware.h": "38bc3b8fe1fcff2a853c6010629768325171f75427509dd2495bd8802c289391",
+    "Arduino.h": "913be5d71899165f4a4c6dc80e9fe9b741fc204da3e029e447b9a075bf16d1aa",
+    "render.py": "49516d965cf5a78a0e02ecc3518129527b18e156c9b8a21e1255ae72934e55dc",
+    "category_stub.h": "111c888d88943ffdf76da84b20bc08d07c6e1cd83eee37a50882c54532d705cb"
+  },
   "files": {
-    "detail.draw": "234a248a8fd563c28fb1d5980697c88ba5aeb3399468203990d16e394c61a6ee",
-    "detail.png": "50dc9790114ada771d2115ca8d55ef3b43d5f25a4db07ebe3d319a72abce9d6d",
-    "home.draw": "4140ee485fce3ee9368705fc96d254a480b24488cd78f4a9bdaeefe0421ead46",
-    "home.png": "65c84ccc43c7462563279721e0d335a8fb4c88be4ef853a41594e1ec37816a37",
-    "keyboard.draw": "b9238d9cdc8bff69e60e9606eae3c5e0d30375082c7c48ab6ccb19c48ac2ef6e",
-    "keyboard.png": "497fe2d36227f01c1f4601e057cbd6d82cb70151cb8cd81bfe324e7c98954f8e",
-    "overview.png": "0e8000c6494d5f6c3a0ba1388e312ad2c000e1623eeabc684171033e4c382a51",
-    "recon.draw": "d667b7d49fe63c613802049211a90db99b02d2ff842052b099af9b3e3707a48d",
-    "recon.png": "54b808cdba71af8fff25d8e2864a2830532a9e5d225f2dc7525702ce993e1581",
-    "settings.draw": "52ec77416db3aad0b85135a01a95c724640375255590e478fde5c3db345fe0bf",
-    "settings.png": "3e630eb3371ea7cd49574d20a294d8603ba0aef75443998618945dbeb24c9ac8",
-    "wardriver.draw": "aec4387ab28ad0b9a9a2224d98eb781c022f2ac75c84140de9b158bca7bbab32",
-    "wardriver.png": "e59aaa458daf7c36c47560f5381fee5f8b1b324a478baac0ad7568ce127821b8"
+    "credentials.draw": "9c194e02929da9ffd2b8126fd1c3b340486ca96830c675139b47e2dd35d66c58",
+    "credentials.png": "3177b2f4dd3a177ae721ead3060bb6fb73958b82e9b18e93bab6475689d8bf94",
+    "detail.draw": "c8a6a577fa145f4bef27102a332a93c1753a91513cf2c61308adda03901add0e",
+    "detail.png": "888f06a7e52c8d6128f9fcf00b0c7482ede90c0400d18aaf0e35a47262e492af",
+    "FONT-LICENSE.txt": "90c68a04ab7d1ac33aed9afa417ea03c200a15fc8ff19e276d0dd9db399e221f",
+    "home.draw": "2e33573d8a66df82d5d6cb7114f06f450373554f825daec296f8cf6259888f22",
+    "home.png": "99d2e98613caf7ba915036bc4d3de417d6e3ec7a0e662a2bc69e6e07ce8ae8d0",
+    "keyboard.draw": "c3372f77e7bd8460c771b4d186842f0b18df2ab96e0790e8be39d34760e45c24",
+    "keyboard.png": "bc7892bd274e6d658fb9837b4d47b3171722510cedb05ab522cea9ab0342dcdf",
+    "overview.png": "56b8c420cc95d1bbb397a288d1a739e7792490e89f1450c696b0c1efe32dd499",
+    "power.draw": "eff6acb2e69bcee99b0bcd78975232f08056de1aed651aae771fc004db38ba9a",
+    "power.png": "3fbb5ca50404169249c8349ad89b4a40f16e9d87416572f9c060a74e60301cae",
+    "recon.draw": "f16a05fbb4616226ae1a47f4c08e1b0d79ec2737c340ae0e88c3d45129bfa0c9",
+    "recon.png": "1302612f941ab2227759a6fccf230b8a709243ed40aa00267b8059224519ef48",
+    "regions.draw": "ca40cff3452f1b8b57788c6fbc2294d57be3b3c940fac473a05c04ed3b58476a",
+    "regions.png": "1986beb1d62c09635366b25aeea07074fb02cb083579278b903227835a73fdd5",
+    "settings.draw": "c66ea699632b09899d88e67038f895e1245bdab1e4c888da7ae5d1af1db57ec2",
+    "settings.png": "e01a4acaa65a96c7786d5474bcba8103dafb0ae2c8e2e13a29daab316f32e9a8",
+    "splash.draw": "782f691a1665933ffe90a91074e8f28c2a8ee19b586021a11f8b794d5def65f3",
+    "splash.png": "65d6147feff51051a08739cd7b1ecdac0485e74fdfe28cb6440d23d56f663896",
+    "wardriver.draw": "c6df28e95d0a0ba3a7202027e977054b3a18655ea88c96c7661afc3f2433942a",
+    "wardriver.png": "7ba6a143596901663139e62d667eda79858b32922cfaa57a7957e27ca201df59"
   }
 }

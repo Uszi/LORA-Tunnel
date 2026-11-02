@@ -11,11 +11,15 @@
 #include "mesh_header.h"
 #include "ui.h"
 #include "version.h"
+#include "shutdown_guard.h"
 
 using namespace tunnel;
 namespace {
 ui::Model model;
 bool ready=false,stopping=false;
+bool shutdownPending=false,shutdownHadSession=false;
+uint32_t shutdownAt=0,shutdownErrors=0,shutdownDrops=0;
+esp_timer_handle_t shutdownTimer=nullptr;
 bool quietActive=false,quietRadios=false,quietDisplay=false;
 esp_timer_handle_t quietTimer=nullptr;
 uint32_t totals[3]{},lastBeep=0,reconTotal=0;
@@ -113,6 +117,7 @@ void drain(unsigned limit=48) {
   while(limit-- && xQueueReceive(captureQueue,&event,0)==pdTRUE) consume(event);
 }
 void requestSession() {
+  if(shutdownPending) { strlcpy(model.notice,"Shutdown in progress",sizeof(model.notice)); return; }
   if(quietActive) { strlcpy(model.notice,"GNSS quiet test; restart to capture",sizeof(model.notice)); return; }
   if(capturing.load()) {
     endCapture();
@@ -150,10 +155,38 @@ void selectMode(bool recon) {
 void performActions() {
   Action action;
   if(xQueueReceive(actions,&action,0)!=pdTRUE) return;
+  if(shutdownPending && action.action!=ui::Action::Shutdown) {
+    volatile char* secret=action.value;
+    for(size_t i=0;i<sizeof(action.value);++i) secret[i]=0;
+    return;
+  }
   switch(action.action) {
     case ui::Action::ToggleSession: requestSession(); break;
     case ui::Action::ToggleMode: selectMode(action.field==1); break;
     case ui::Action::ToggleAlerts: config.buzzer=action.field==1; break;
+    case ui::Action::SaveRegion:
+      if(capturing || stopping || !loggerIdle()) strlcpy(model.notice,"Stop and save before changing region",sizeof(model.notice));
+      else if(xSemaphoreTake(busMutex,pdMS_TO_TICKS(300))!=pdTRUE)
+        strlcpy(model.notice,"Storage busy; region was not changed",sizeof(model.notice));
+      else {
+        const auto saved=saveLoRaRegion(action.value,storageReady());
+        xSemaphoreGive(busMutex);
+        if(!saved.applied) strlcpy(model.notice,"Region save failed; previous kept",sizeof(model.notice));
+        else if(!scannersConfigureLoRa()) strlcpy(model.notice,"Region saved; LoRa init failed",sizeof(model.notice));
+        else if(!config.lora_enabled) strlcpy(model.notice,"LoRa disabled; Wi-Fi/BLE available",sizeof(model.notice));
+        else strlcpy(model.notice,saved.sd_saved?(saved.nvs_saved?"Region saved to device and SD":"Region saved to SD"):
+            "Region saved to device",sizeof(model.notice));
+      }
+      break;
+    case ui::Action::Shutdown:
+      if(!shutdownPending) {
+        shutdownHadSession=capturing.load() || stopping || !loggerIdle();
+        shutdownErrors=counters.storage_errors.load(); shutdownDrops=counters.log_drops.load();
+        model.shutdown_error[0]=0;
+        if(capturing.load()) requestSession();
+        shutdownPending=true; shutdownAt=millis();
+      }
+      break;
     case ui::Action::RetryStorage:
       if(capturing || stopping || !loggerIdle()) strlcpy(model.notice,"Stop session before remounting SD",sizeof(model.notice));
       else {
@@ -182,6 +215,8 @@ void refreshModel() {
   model.errors=counters.storage_errors+counters.radio_errors+counters.malformed;
   model.nmea_chars=gnssCharacters();
   model.buttons_enabled=config.buttons_enabled; model.recon_alerts=config.buzzer;
+  model.region_configured=regionConfigured(); model.region_selection_made=regionSelectionMade();
+  strlcpy(model.region,config.region,sizeof(model.region)); model.shutting_down=shutdownPending;
   model.recon_total=reconTotal;
   const auto fix=currentFix(); model.gps=fix.valid; strlcpy(model.utc,fix.utc,sizeof(model.utc));
   const auto gps=gnssDiagnostics();
@@ -193,7 +228,7 @@ void refreshModel() {
     snprintf(model.gps_detail,sizeof(model.gps_detail),"NO FIX / GSV %d visible / %u used",gps.satellites_visible,fix.satellites);
   else strlcpy(model.gps_detail,"GNSS data OK / acquiring fix",sizeof(model.gps_detail));
   strlcpy(model.phase,stopping?"Saving":scanPhase(),sizeof(model.phase));
-  strlcpy(model.profile,config.lora_enabled?config.profile:"OFF: check SD config",sizeof(model.profile));
+  strlcpy(model.profile,config.lora_enabled?config.profile:"OFF: Settings > LoRa region",sizeof(model.profile));
   memset(model.recent,0,sizeof(model.recent));
   for(unsigned type=0;type<3;type++) {
     bool chosen[64]{};
@@ -234,6 +269,41 @@ void serialStatus() {
     (unsigned long)(counters.storage_errors.load()+counters.radio_errors.load()+counters.malformed.load()),ESP.getFreeHeap(),
     model.recon?"recon":"wardriver",(unsigned long)reconTotal,ESP.getFreePsram(),quietActive);
 }
+void shutdownCancelled(const char* reason) {
+  shutdownPending=false; model.shutting_down=false;
+  strlcpy(model.shutdown_error,reason,sizeof(model.shutdown_error));
+  if(shutdownTimer) esp_timer_stop(shutdownTimer);
+}
+void serviceShutdown() {
+  if(!shutdownPending) return;
+  const auto decision=shutdownDecision(capturing.load(),stopping,loggerIdle(),shutdownHadSession,
+      storageReady(),shutdownErrors,counters.storage_errors.load(),shutdownDrops,counters.log_drops.load(),millis()-shutdownAt);
+  if(decision==ShutdownDecision::Wait) return;
+  if(decision==ShutdownDecision::StorageError) { shutdownCancelled("SD save failed; device kept awake"); return; }
+  if(decision==ShutdownDecision::Timeout) { shutdownCancelled("Save timed out; shutdown cancelled"); return; }
+  // Saving is complete. An independent timer recovers a blocked upstream radio
+  // teardown by rebooting into an idle session, never by cutting an open SD log.
+  if(!shutdownTimer) {
+    esp_timer_create_args_t args{};
+    args.callback=[](void*) { esp_restart(); }; args.name="shutdown-recovery";
+    if(esp_timer_create(&args,&shutdownTimer)!=ESP_OK) { shutdownCancelled("Shutdown timer unavailable"); return; }
+  }
+  if(esp_timer_start_once(shutdownTimer,15000000)!=ESP_OK) { shutdownCancelled("Shutdown timer unavailable"); return; }
+  if(!scannersEnterQuiet()) { ready=false; shutdownCancelled("Radio stop failed; restart device"); return; }
+  // Radio shutdown latches capture off until reboot. Failure stays awake.
+  ready=false;
+  if(xSemaphoreTake(busMutex,pdMS_TO_TICKS(500))!=pdTRUE) { shutdownCancelled("Bus busy; restart device"); return; }
+  if(!hw::prepareSleepHardware()) {
+    xSemaphoreGive(busMutex); shutdownCancelled("Release USER; retry Power or restart"); return;
+  }
+  if(!unmountStorageForSleep()) {
+    hw::cancelSleepPreparation();
+    xSemaphoreGive(busMutex); shutdownCancelled("Storage busy; restart device"); return;
+  }
+  gnssEnd();
+  Serial.println("LT POWER confirmed=1 session_closed=1 sleeping=1 wake=user");
+  hw::enterDeepSleep();
+}
 void enterQuietTest(unsigned seconds=90) {
   if(quietActive || capturing.load() || stopping || !loggerIdle()) {
     Serial.println("LT QUIET refused=1 reason=stop_and_save_first"); return;
@@ -273,7 +343,9 @@ void serialCommands() {
     if(ch=='\n') {
       command[length]=0;
       if(!overflow) {
-        if(quietActive && strcmp(command,"tunnel status") && strcmp(command,"tunnel gps") && strcmp(command,"tunnel resume"))
+        if(shutdownPending && strcmp(command,"tunnel status") && strcmp(command,"tunnel gps"))
+          Serial.println("LT POWER refused=1 reason=shutdown_pending");
+        else if(quietActive && strcmp(command,"tunnel status") && strcmp(command,"tunnel gps") && strcmp(command,"tunnel resume"))
           Serial.println("LT QUIET refused=1 reason=test_active");
         else if(!strcmp(command,"tunnel quiet")) enterQuietTest();
         else if(!strcmp(command,"tunnel quiet-long")) enterQuietTest(300);
@@ -326,8 +398,12 @@ void setup() {
   gnssBegin();
   const bool memoryOK=ESP.getFlashChipSize()==board::FLASH_BYTES && ESP.getPsramSize()==board::PSRAM_BYTES;
   if(mountStorage()) {
-    if(!loadConfig()) strlcpy(model.notice,config.lora_enabled?"US defaults; SD config optional":"Config invalid; LoRa disabled",sizeof(model.notice));
-  } else strlcpy(model.notice,"No SD. Setup > Retry SD",sizeof(model.notice));
+    if(!loadConfig() && configLoadState==ConfigLoadState::Invalid)
+      strlcpy(model.notice,"Config invalid; choose a LoRa region",sizeof(model.notice));
+  } else {
+    loadRegionPreference();
+    strlcpy(model.notice,"No SD. Setup > Retry SD",sizeof(model.notice));
+  }
   const bool writerOK=loggerBegin();
   const bool scannerOK=writerOK && scannersBegin();
   ready=writerOK && scannerOK && memoryOK && displayOK;
@@ -365,5 +441,6 @@ void loop() {
   refreshModel();
   if(xSemaphoreTake(busMutex,0)==pdTRUE) { ui::tick(model); xSemaphoreGive(busMutex); }
   else ++counters.ui_skips;
+  serviceShutdown();
   delay(5);
 }
