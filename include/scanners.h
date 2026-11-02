@@ -25,6 +25,12 @@ struct GnssDiagnostics {
   bool output_config_attempted=false, output_config_sent=false;
 };
 GnssDiagnostics gnssDiagnostics();
+enum class GnssControl : uint8_t { Version, Warm, Cold, Constellations };
+// Explicit USB maintenance only. Caller must stop capture and finish SD writes.
+// A successful return means submission to UART, not receiver acknowledgment.
+bool gnssControl(GnssControl command);
+bool gnssControlPending();
+const char* gnssSoftwareVersion();
 bool scannersBegin();
 void scannersStart();
 void scannersStop();

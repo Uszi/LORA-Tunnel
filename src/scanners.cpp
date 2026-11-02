@@ -32,15 +32,19 @@ TinyGPSCustom gnStatus(gnss,"GNRMC",2), gpStatus(gnss,"GPRMC",2);
 TinyGPSCustom gnQuality(gnss,"GNGGA",6), gpQuality(gnss,"GPGGA",6);
 HardwareSerial gpsSerial(1);
 uint32_t gnssUartAt=0;
-// Observe only the sentence identifier and an allowlisted status field. Never
-// buffer complete NMEA sentences, coordinates, timestamps or receiver text.
+uint32_t gnssControlAt=0, gnssHoldMs=0;
+bool gnssControlSent=false;
+char gnssSoftware[64]{};
+// Observe only the sentence identifier, allowlisted status and SW version text.
+// Never buffer complete NMEA sentences, coordinates, timestamps or other TXT.
 struct NmeaDiagnostics {
   enum Type : uint8_t { Other, Gga, Rmc, Gsa, Gsv, Txt } type=Other;
   GnssDiagnostics data;
   uint32_t lastAt=0, ggaAt=0, rmcAt=0, gsaAt=0, gsvAt=0, antennaAt=0, antennaStatusAt=0;
   gnss_protocol::GsvFields gsvFields;
+  gnss_protocol::SoftwareVersionFields softwareFields;
   gnss_protocol::SkyTracker sky;
-  char id[6]{}, field[13]{};
+  char id[6]{}, field[64]{};
   uint16_t length=0, term=0;
   uint8_t idLength=0, fieldLength=0, parity=0, expected=0, digits=0;
   bool active=false, checksum=false, bad=false, fieldOverflow=false;
@@ -50,9 +54,13 @@ struct NmeaDiagnostics {
 
   bool selected() const {
     return (type==Gga && term==6) || (type==Rmc && term==2) ||
-           (type==Gsa && term==2) || type==Gsv || (type==Txt && term==4);
+           (type==Gsa && term==2) || type==Gsv || (type==Txt && (term==4 || term==5));
   }
   void endTerm() {
+    if(type==Txt && term>=4) {
+      if(fieldOverflow || (term>5 && softwareFields.recognized)) softwareFields.invalid=true;
+      else softwareFields.field(term,field,fieldLength);
+    }
     if(term==0) {
       if(idLength==5 && id[0]>='A' && id[0]<='Z' && id[1]>='A' && id[1]<='Z') {
         if(!strcmp(id+2,"GGA")) type=Gga;
@@ -69,7 +77,7 @@ struct NmeaDiagnostics {
       if(type==Rmc) {
         if(fieldLength==1 && (field[0]=='A' || field[0]=='V')) status=field[0];
       } else if(type==Txt) {
-        antenna=gnss_protocol::antennaStatus(field,fieldLength);
+        if(term==4) antenna=gnss_protocol::antennaStatus(field,fieldLength);
       } else if(fieldLength<=3) {
         int16_t number=0;
         for(uint8_t i=0;i<fieldLength;++i) {
@@ -92,6 +100,10 @@ struct NmeaDiagnostics {
         break;
       case Txt:
         ++data.txt;
+        // Only the software-identification field requested by Meshtastic's
+        // L76K probe is exposed. Arbitrary TXT/NMEA remains private.
+        if(softwareFields.recognized && !softwareFields.invalid)
+          strlcpy(gnssSoftware,softwareFields.value,sizeof(gnssSoftware));
         if(antenna!=gnss_protocol::AntennaStatus::Unknown) {
           data.antenna_status=static_cast<int8_t>(antenna); antennaStatusAt=now;
           if(antenna==gnss_protocol::AntennaStatus::Open) { ++data.antenna_open_reports; antennaAt=now; }
@@ -108,6 +120,7 @@ struct NmeaDiagnostics {
       active=true; checksum=bad=fieldOverflow=false; value=-1; status='?';
       antenna=gnss_protocol::AntennaStatus::Unknown;
       gsvFields=gnss_protocol::GsvFields{};
+      softwareFields=gnss_protocol::SoftwareVersionFields{};
       return;
     }
     if(!active) return;
@@ -409,7 +422,50 @@ void gnssBegin() {
   gpsSerial.begin(board::GNSS_BAUD,SERIAL_8N1,board::GNSS_RX,board::GNSS_TX);
   gnssUartAt=millis();
 }
+namespace {
+void clearGnssEpoch() {
+  gnss=TinyGPSPlus{};
+  // Assignment clears TinyGPSPlus's linked custom-field list. Re-register all
+  // four existing objects; begin() also clears their cached validity/contents.
+  gnStatus.begin(gnss,"GNRMC",2); gpStatus.begin(gnss,"GPRMC",2);
+  gnQuality.begin(gnss,"GNGGA",6); gpQuality.begin(gnss,"GPGGA",6);
+  nmeaDiagnostics=NmeaDiagnostics{};
+  portENTER_CRITICAL(&fixMux); fix=Fix{}; portEXIT_CRITICAL(&fixMux);
+}
+}
+const char* gnssSoftwareVersion() { return gnssSoftware; }
+bool gnssControlPending() { return gnssHoldMs!=0; }
+bool gnssControl(GnssControl command) {
+  if(capturing.load() || gnssHoldMs || (gnssControlSent && millis()-gnssControlAt<5000)) return false;
+  char wire[64]; size_t length=0;
+  switch(command) {
+    case GnssControl::Version: length=gnss_protocol::versionQueryCommand(wire,sizeof(wire)); break;
+    case GnssControl::Warm: length=gnss_protocol::warmRestartCommand(wire,sizeof(wire)); break;
+    case GnssControl::Cold: length=gnss_protocol::coldRestartCommand(wire,sizeof(wire)); break;
+    case GnssControl::Constellations: length=gnss_protocol::allConstellationsCommand(wire,sizeof(wire)); break;
+  }
+  if(!length || gpsSerial.availableForWrite()<static_cast<int>(length)) return false;
+  if(gpsSerial.write(reinterpret_cast<const uint8_t*>(wire),length)!=length) return false;
+  gnssControlAt=millis(); gnssControlSent=true;
+  if(command==GnssControl::Version) gnssSoftware[0]=0;
+  else {
+    clearGnssEpoch();
+    gnssHoldMs=command==GnssControl::Constellations?250:1500;
+  }
+  return true;
+}
 void gnssTick() {
+  if(gnssHoldMs) {
+    // Discard pre-restart/settling bytes with the same bounded receive budget.
+    // No old coordinate or UTC value can survive into the new receiver epoch.
+    unsigned discard=0;
+    while(gpsSerial.available() && discard++<512) gpsSerial.read();
+    if(millis()-gnssControlAt>=gnssHoldMs && !gpsSerial.available()) {
+      clearGnssEpoch(); gnssHoldMs=0;
+      gnssUartAt=millis()-1500; // Reapply output config on the next loop.
+    }
+    return;
+  }
   if(!nmeaDiagnostics.data.output_config_attempted && millis()-gnssUartAt>=1500) {
     char command[64];
     const size_t length=gnss_protocol::diagnosticCommand(command,sizeof(command));

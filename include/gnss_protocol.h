@@ -8,6 +8,17 @@ namespace tunnel { namespace gnss_protocol {
 // not a change to the positioning interval. Preserve the reserved fields.
 constexpr char kDiagnosticBody[]="PCAS03,1,0,1,2,1,0,0,1,0,0,,,0,0";
 constexpr std::size_t kDiagnosticCommandSize=sizeof(kDiagnosticBody)-1+6;
+// Quectel L76K GNSS Protocol V1.1 sections 2.3.4/2.3.5:
+// https://files.waveshare.com/upload/d/dd/Quectel_L76K_GNSS_Protocol_Specification_V1.1.pdf
+// Restart flags are 0=hot, 1=warm, 2=cold, 3=factory. No factory helper is exposed.
+// PCAS input commands have no specified ACK; construction does not prove execution.
+constexpr char kWarmRestartBody[]="PCAS10,1";
+constexpr char kColdRestartBody[]="PCAS10,2";
+constexpr char kAllConstellationsBody[]="PCAS04,7";
+// Read-only software-version probe from Meshtastic's L76K (GNSS_MODEL_MTK) path:
+// https://github.com/meshtastic/firmware/blob/6d41e279f1f51bd59f687b9d441c1bf47b1594fc/src/gps/GPS.cpp#L1360
+// It expects TXT SW= information; this query is not listed in Quectel V1.1.
+constexpr char kVersionQueryBody[]="PCAS06,0";
 
 inline std::uint8_t nmeaChecksum(const char* body,std::size_t length) {
   std::uint8_t value=0;
@@ -15,22 +26,83 @@ inline std::uint8_t nmeaChecksum(const char* body,std::size_t length) {
   return value;
 }
 
-// All or nothing; zero means no command was produced. Returned byte count
-// includes CR/LF but excludes the NUL, so it can be passed directly to write().
-inline std::size_t diagnosticCommand(char* output,std::size_t capacity) {
-  if(!output || capacity<=kDiagnosticCommandSize) return 0;
+namespace detail {
+template<std::size_t N>
+inline std::size_t frameCommand(const char (&body)[N],char* output,std::size_t capacity) {
+  // Literal-only commands, bounded to a 64-byte destination including the NUL.
+  static_assert(N>1 && N<=58,"GNSS command body exceeds bounded frame size");
+  constexpr std::size_t bodyLength=N-1, commandSize=bodyLength+6;
+  if(!output || capacity<=commandSize) return 0;
   constexpr char hex[]="0123456789ABCDEF";
-  constexpr std::size_t bodyLength=sizeof(kDiagnosticBody)-1;
-  const std::uint8_t checksum=nmeaChecksum(kDiagnosticBody,bodyLength);
+  const std::uint8_t checksum=nmeaChecksum(body,bodyLength);
   output[0]='$';
-  std::memcpy(output+1,kDiagnosticBody,bodyLength);
+  std::memcpy(output+1,body,bodyLength);
   output[bodyLength+1]='*';
   output[bodyLength+2]=hex[checksum>>4];
   output[bodyLength+3]=hex[checksum&15];
   output[bodyLength+4]='\r'; output[bodyLength+5]='\n';
-  output[kDiagnosticCommandSize]=0;
-  return kDiagnosticCommandSize;
+  output[commandSize]=0;
+  return commandSize;
 }
+}
+// Pure construction only: no UART, reset, delay or configuration side effects.
+// All or nothing; zero leaves output untouched. Success includes CR/LF but not
+// the NUL in its return count; capacity must also allow that terminating NUL.
+inline std::size_t diagnosticCommand(char* output,std::size_t capacity) {
+  return detail::frameCommand(kDiagnosticBody,output,capacity);
+}
+inline std::size_t warmRestartCommand(char* output,std::size_t capacity) {
+  return detail::frameCommand(kWarmRestartBody,output,capacity);
+}
+inline std::size_t coldRestartCommand(char* output,std::size_t capacity) {
+  return detail::frameCommand(kColdRestartBody,output,capacity);
+}
+inline std::size_t allConstellationsCommand(char* output,std::size_t capacity) {
+  return detail::frameCommand(kAllConstellationsBody,output,capacity);
+}
+inline std::size_t versionQueryCommand(char* output,std::size_t capacity) {
+  return detail::frameCommand(kVersionQueryBody,output,capacity);
+}
+
+// L76K software TXT responses can split the description and version at a comma:
+// $GPTXT,01,01,02,SW=URANUS5,V5.3.0.0*checksum. Preserve both text fields.
+// This only collects bounded fields. The caller must reset it per sentence and
+// require a valid whole-sentence checksum before publishing recognized results.
+class SoftwareVersionFields {
+public:
+  char value[64]{};
+  bool recognized=false, invalid=false;
+  void field(std::uint16_t term,const char* text,std::size_t length) {
+    if(invalid) return;
+    if(term==4) {
+      if(sawText_) { reject(); return; }
+      sawText_=true;
+      if(!text || length<3 || std::memcmp(text,"SW=",3)) return;
+      recognized=true;
+      if(length==3 || !append(text+3,length-3,false)) reject();
+    } else if(term==5 && recognized) {
+      if(sawVersion_) { reject(); return; }
+      sawVersion_=true;
+      if(length && !append(text,length,true)) reject();
+    }
+  }
+private:
+  std::size_t size_=0;
+  bool sawText_=false, sawVersion_=false;
+  void reject() { invalid=true; size_=0; value[0]=0; }
+  bool append(const char* text,std::size_t length,bool comma) {
+    // Check size before addition/iteration, including untrusted oversized lengths.
+    if(!text || length>=sizeof(value) || size_+length+(comma?1:0)>=sizeof(value)) return false;
+    for(std::size_t i=0;i<length;++i) {
+      const unsigned char c=static_cast<unsigned char>(text[i]);
+      if(!((c>='A' && c<='Z') || (c>='a' && c<='z') || (c>='0' && c<='9') ||
+           c=='.' || c=='_' || c=='=' || c=='-' || c==' ')) return false;
+    }
+    if(comma) value[size_++]=',';
+    std::memcpy(value+size_,text,length); size_+=length; value[size_]=0;
+    return true;
+  }
+};
 
 // Exact strings documented by Quectel's protocol/QuecPython examples. Unknown
 // free-form messages, including unverified short-circuit spellings, stay unknown.

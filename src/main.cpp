@@ -123,6 +123,7 @@ void requestSession() {
     return;
   }
   if(!ready || stopping || !loggerIdle()) { strlcpy(model.notice,"Not ready; check diagnostics",sizeof(model.notice)); return; }
+  if(gnssControlPending()) { strlcpy(model.notice,"GPS restarting; try Start shortly",sizeof(model.notice)); return; }
   // Missing card is recoverable: require mount before recording a session.
   if(!storageReady()) { strlcpy(model.notice,"Insert SD, then Setup > Retry SD",sizeof(model.notice)); return; }
   uint32_t id=esp_random(); if(!id) id=1;
@@ -233,7 +234,7 @@ void serialStatus() {
     (unsigned long)(counters.storage_errors.load()+counters.radio_errors.load()+counters.malformed.load()),ESP.getFreeHeap(),
     model.recon?"recon":"wardriver",(unsigned long)reconTotal,ESP.getFreePsram(),quietActive);
 }
-void enterQuietTest() {
+void enterQuietTest(unsigned seconds=90) {
   if(quietActive || capturing.load() || stopping || !loggerIdle()) {
     Serial.println("LT QUIET refused=1 reason=stop_and_save_first"); return;
   }
@@ -246,11 +247,11 @@ void enterQuietTest() {
       Serial.println("LT QUIET refused=1 reason=timer_unavailable"); return;
     }
   }
-  if(esp_timer_start_once(quietTimer,90000000)!=ESP_OK) {
+  if(esp_timer_start_once(quietTimer,uint64_t(seconds)*1000000)!=ESP_OK) {
     Serial.println("LT QUIET refused=1 reason=timer_unavailable"); return;
   }
   quietActive=true;
-  Serial.println("LT QUIET active=1 seconds=90 shutting_down=1");
+  Serial.printf("LT QUIET active=1 seconds=%u shutting_down=1\n",seconds);
   quietRadios=scannersEnterQuiet();
   if(xSemaphoreTake(busMutex,pdMS_TO_TICKS(200))==pdTRUE) {
     hw::display().setBrightness(0);
@@ -258,7 +259,7 @@ void enterQuietTest() {
     quietDisplay=true;
     xSemaphoreGive(busMutex);
   }
-  Serial.printf("LT QUIET active=1 radio_shutdown=%d display_shutdown=%d seconds=90\n",quietRadios,quietDisplay);
+  Serial.printf("LT QUIET active=1 radio_shutdown=%d display_shutdown=%d seconds=%u\n",quietRadios,quietDisplay,seconds);
 }
 void serialCommands() {
   // Optional bench control; standalone operation never depends on USB.
@@ -275,12 +276,23 @@ void serialCommands() {
         if(quietActive && strcmp(command,"tunnel status") && strcmp(command,"tunnel gps") && strcmp(command,"tunnel resume"))
           Serial.println("LT QUIET refused=1 reason=test_active");
         else if(!strcmp(command,"tunnel quiet")) enterQuietTest();
+        else if(!strcmp(command,"tunnel quiet-long")) enterQuietTest(300);
         else if(!strcmp(command,"tunnel resume")) { if(quietActive) ESP.restart(); }
         else if(!strcmp(command,"tunnel start")) { if(!capturing.load()) requestSession(); serialStatus(); }
         else if(!strcmp(command,"tunnel stop")) { if(capturing.load()) requestSession(); serialStatus(); }
         else if(!strcmp(command,"tunnel status")) serialStatus();
         else if(!strcmp(command,"tunnel recon")) { selectMode(true); serialStatus(); }
         else if(!strcmp(command,"tunnel drive")) { selectMode(false); serialStatus(); }
+        else if(!strcmp(command,"tunnel gps-warm") || !strcmp(command,"tunnel gps-cold") ||
+                !strcmp(command,"tunnel gps-init") || !strcmp(command,"tunnel gps-version")) {
+          const auto operation=!strcmp(command,"tunnel gps-warm")?GnssControl::Warm:
+              !strcmp(command,"tunnel gps-cold")?GnssControl::Cold:
+              !strcmp(command,"tunnel gps-init")?GnssControl::Constellations:GnssControl::Version;
+          if(capturing.load() || stopping || !loggerIdle())
+            Serial.println("LT GNSS_CONTROL sent=0 reason=stop_and_save_first");
+          else Serial.printf("LT GNSS_CONTROL operation=%u sent=%d acknowledged=0\n",
+              unsigned(operation),gnssControl(operation));
+        }
         else if(!strcmp(command,"tunnel gps")) {
           const auto d=gnssDiagnostics();
           Serial.printf("LT GPS baud=%lu bytes=%lu checksum_ok=%lu checksum_failed=%lu sentences_with_fix=%lu gga=%lu rmc=%lu gsa=%lu gsv=%lu other=%lu fix_quality=%d rmc_status=%c fix_type=%d satellites_visible=%d sentence_age_ms=%lu location_age_ms=%lu parser_location_valid=%d date_valid=%d time_valid=%d gsv_age_ms=%lu txt=%lu antenna_open_reports=%lu antenna_open_age_ms=%lu output_config_attempted=%d output_config_sent=%d antenna_status=%d antenna_ok_reports=%lu antenna_status_age_ms=%lu\n",
@@ -293,6 +305,7 @@ void serialCommands() {
             Serial.printf("LT SKY talker=%s sentences=%lu complete_groups=%lu age_ms=%lu visible=%d max_cn0=%d cn0_count=%u positive_cn0_count=%u signal_id=%u\n",
                 sky.talker,(unsigned long)sky.sentences,(unsigned long)sky.complete_groups,(unsigned long)sky.age_ms,
                 sky.visible,sky.max_cn0,sky.cn0_count,sky.positive_cn0_count,sky.signal_id);
+          if(gnssSoftwareVersion()[0]) Serial.printf("LT GNSS_VERSION software=%s\n",gnssSoftwareVersion());
         }
       }
       length=0; overflow=false;

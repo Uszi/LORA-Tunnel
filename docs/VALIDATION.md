@@ -1,6 +1,31 @@
 # Validation record — 2026-11-01
 
-Latest installed milestone: **LORA Tunnel 0.2.2-beta.1**, local board `heltec_v4_r8_tft`, Heltec Expansion V2 / V4-R8, 16 MB QIO flash and 8 MB OPI PSRAM. The version-specific results below distinguish source checks, device reports and user confirmation. GNSS communication and signal reports work; no position fix is claimed. User confirmed the kit family, 915 MHz variant, and United States operation on 2026-11-01. The exact PCB silkscreen and fitted RF front-end still require physical verification.
+Latest installed development build: **LORA Tunnel 0.2.3-dev**; published beta remains **0.2.2-beta.1**. Local board `heltec_v4_r8_tft`, Heltec Expansion V2 / V4-R8, 16 MB QIO flash and 8 MB OPI PSRAM. The version-specific results below distinguish source checks, device reports and user confirmation. GNSS communication and signal reports work; no position fix is claimed. User confirmed the kit family, 915 MHz variant, and United States operation on 2026-11-01. The exact PCB silkscreen and fitted RF front-end still require physical verification.
+
+## 0.2.3-dev: documented recovery and isolated receiver comparison
+
+The user reconfirmed persistent outdoor no-fix and identified the original GNSS antenna supplied with the kit. Before changing receiver state, a read-only check at roughly 9,988 seconds uptime showed 74,933 accepted checksums, zero failed checksums, zero sentences with a fix, and fresh GGA quality 0 / RMC V / GSA type 1. A running capture was stopped and its queued writes closed before maintenance.
+
+The development build adds explicit, idle-only USB software-version, warm-start, cold-start and all-constellation commands. It invalidates prior fix/time/parser caches across recovery, re-registers TinyGPS custom fields, drains settling input with bounded work, and reapplies diagnostic output. Start is held during the settling interval. A TXT comma-handling repair preserves `SW=URANUS5,V5.3.0.0`; the physical receiver returned that checksum-valid software identifier. A software-family string does not prove a physical module marking. All **17 GNSS native tests passed**; the final production candidate compiled in 27.25 seconds. No automatic no-fix reset or production factory-reset command was added.
+
+| Separate observation | Duration | Final accepted / failed checksums | Position fix |
+| --- | ---: | ---: | --- |
+| Documented warm restart | 150 s | 1,134 / 0 | None |
+| Explicit GPS + BeiDou + GLONASS selection | 120 s | 915 / 0 | None |
+| Documented cold restart | 300 s | 2,257 / 0 | None |
+| Temporary GPS-only application | 150 s | 1,122 / 0 | None |
+| GPS receiver factory-settings request, GPS-only application | 300 s | 1,782 / 0 | None |
+| Stock Meshtastic GNSS command sequence, GPS-only application | 150 s | 303 / 0 | None |
+
+The temporary application initialized no Wi-Fi, BLE, LoRa, display or SD drivers. It held SX1262 reset, disabled its front end, turned VEXT off, left peripheral buses as inputs and ran the CPU at a reported 80 MHz with APB80. TinyGPSPlus and an independent checksum/status parser agreed on the absence of a fix. This is stronger isolation than merely stopping a capture, but does not prove a particular hardware failure or exclude all supply, cable or RF interference.
+
+The receiver-only factory-settings request used documented PCAS10 flag 3, sent once by explicit bench command. ESP32 flash settings, SD files and application credentials were not factory-reset. Subsequent output changed to the documented default GPS/BeiDou combination; warm/cold/constellation requests have no defined PCAS acknowledgment, so counters alone establish UART submission. The factory-window host report-drop count of two was a USB reporting-backlog counter across the disconnected interval, not an NMEA checksum failure.
+
+The last comparison submitted the three GNSS commands from Meshtastic revision `54e0d8d`: PCAS04 mode 7, GGA/RMC-only PCAS03, and PCAS11 mode 3, separated by at least 250 ms. Its stage reached complete with three submissions and fresh GGA/RMC continued, still quality 0 / RMC V. GSA/GSV/TXT are deliberately disabled by that stock output selection, so their absence in this window is not receiver failure. This compared the GNSS initialization sequence in an isolated application; **the original Meshtastic firmware itself was not reflashed or physically retested**. PCAS11 is sourced from upstream implementation, not the inspected L76K protocol specification.
+
+The normal 0.2.3-dev application was restored with an application-only write and separate flash verification. Binary length is **2,454,480 bytes**, SHA256 `8e2deb3a08cb294f26f3737f185b208efd83ccc82d3b6c27c428c5f68795dac0`. The rounded write boundary `0x268000` remains inside the previously verified recovery-prefix boundary. Restored boot reported ready, SD, touch and LoRa with zero errors/drops. All three constellations and diagnostic output were explicitly re-established. A short capture/stop regression recorded **16 Wi-Fi observations and 197 BLE advertisements**, zero LoRa packets, zero application errors/drops, and a closed session (`running=0 saving=0`). It did not verify SD file contents or LoRa reception in that short window.
+
+The final read-only query at about 151 seconds uptime still showed no fix, with 1,004 accepted checksums and one failed checksum. That single failed-checksum count was already present at the earlier post-configuration snapshot and did not increase in the final check; its cause was not established. GGA quality 0 / RMC V / GSA type 1 remained fresh. The normal interface application is restored; new physical screen acceptance has not been claimed. Raw diagnostics and temporary images remain private. No positioning repair is claimed; antenna/connector inspection and current reception conditions remain the next physical checks. Primary hardware/protocol references and command semantics are in [GPS_DIAGNOSTICS.md](GPS_DIAGNOSTICS.md) and [HARDWARE.md](HARDWARE.md).
 
 Raw build/serial transcripts and device-specific backup metadata are retained privately and excluded from the public source release. This document preserves summarized results, versioned public firmware hashes and limitations; synthetic test fixtures remain public. Source/relinking materials are described in [RELINKING.md](RELINKING.md).
 

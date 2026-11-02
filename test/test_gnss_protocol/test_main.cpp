@@ -29,6 +29,37 @@ void test_command_rejects_small_or_null_buffers_without_partial_output() {
   TEST_ASSERT_EQUAL_CHAR(0,output[kDiagnosticCommandSize]);
   TEST_ASSERT_EQUAL_CHAR('x',output[kDiagnosticCommandSize+1]);
 }
+void test_restart_and_constellation_commands_match_documented_wire_bytes() {
+  char output[64]{};
+  TEST_ASSERT_EQUAL_UINT32(14,warmRestartCommand(output,sizeof(output)));
+  TEST_ASSERT_EQUAL_STRING("$PCAS10,1*1D\r\n",output);
+  TEST_ASSERT_EQUAL_UINT32(14,coldRestartCommand(output,sizeof(output)));
+  // Cold is flag 2, never hot flag 0 or factory-reset flag 3.
+  TEST_ASSERT_EQUAL_STRING("$PCAS10,2*1E\r\n",output);
+  TEST_ASSERT_EQUAL_UINT32(14,allConstellationsCommand(output,sizeof(output)));
+  TEST_ASSERT_EQUAL_STRING("$PCAS04,7*1E\r\n",output);
+}
+void test_version_query_matches_pinned_upstream_wire_bytes() {
+  char output[15]{};
+  TEST_ASSERT_EQUAL_UINT32(14,versionQueryCommand(output,sizeof(output)));
+  TEST_ASSERT_EQUAL_STRING("$PCAS06,0*1B\r\n",output);
+}
+void test_explicit_commands_reject_small_null_and_keep_sentinels() {
+  using Builder=std::size_t (*)(char*,std::size_t);
+  const Builder commands[]={warmRestartCommand,coldRestartCommand,
+                            allConstellationsCommand,versionQueryCommand};
+  for(const auto command:commands) {
+    char output[32]; std::memset(output,'x',sizeof(output));
+    TEST_ASSERT_EQUAL_UINT32(0,command(nullptr,sizeof(output)));
+    for(std::size_t capacity=0;capacity<=14;++capacity) {
+      TEST_ASSERT_EQUAL_UINT32(0,command(output,capacity));
+      for(char value:output) TEST_ASSERT_EQUAL_CHAR('x',value);
+    }
+    TEST_ASSERT_EQUAL_UINT32(14,command(output,15));
+    TEST_ASSERT_EQUAL_CHAR(0,output[14]);
+    for(std::size_t i=15;i<sizeof(output);++i) TEST_ASSERT_EQUAL_CHAR('x',output[i]);
+  }
+}
 void test_antenna_warning_requires_exact_documented_text() {
   TEST_ASSERT_TRUE(antennaOpen("ANTENNA OPEN",12));
   TEST_ASSERT_FALSE(antennaOpen(nullptr,12));
@@ -39,6 +70,58 @@ void test_antenna_warning_requires_exact_documented_text() {
   TEST_ASSERT_FALSE(antennaOpen("antenna open",12));
   TEST_ASSERT_EQUAL_INT8(static_cast<int>(AntennaStatus::Ok),static_cast<int>(antennaStatus("ANTENNA OK",10)));
   TEST_ASSERT_EQUAL_INT8(static_cast<int>(AntennaStatus::Unknown),static_cast<int>(antennaStatus("ANTENNA OK extra",16)));
+}
+void test_software_version_preserves_optional_comma_version() {
+  SoftwareVersionFields version;
+  version.field(4,"SW=URANUS5",10);
+  version.field(5,"V5.3.0.0",8);
+  TEST_ASSERT_TRUE(version.recognized);
+  TEST_ASSERT_FALSE(version.invalid);
+  TEST_ASSERT_EQUAL_STRING("URANUS5,V5.3.0.0",version.value);
+  version=SoftwareVersionFields{};
+  version.field(4,"SW=URANUS5",10);
+  version.field(5,nullptr,0);
+  TEST_ASSERT_FALSE(version.invalid);
+  TEST_ASSERT_EQUAL_STRING("URANUS5",version.value);
+}
+void test_software_version_rejects_unknown_prefixes_and_malformed_text() {
+  for(const char* text:{"HW=URANUS5","sw=URANUS5","XSW=URANUS5","ANTENNA OK"}) {
+    SoftwareVersionFields version;
+    version.field(4,text,std::strlen(text)); version.field(5,"V5.3.0.0",8);
+    TEST_ASSERT_FALSE(version.recognized);
+    TEST_ASSERT_EQUAL_STRING("",version.value);
+  }
+  for(const char* text:{"SW=", "SW=bad,field", "SW=bad\nfield", "SW=bad/field", "SW=bad\x80"}) {
+    SoftwareVersionFields version;
+    version.field(4,text,std::strlen(text));
+    TEST_ASSERT_TRUE(version.recognized);
+    TEST_ASSERT_TRUE(version.invalid);
+    TEST_ASSERT_EQUAL_STRING("",version.value);
+  }
+  SoftwareVersionFields version;
+  version.field(4,"SW=URANUS5",10); version.field(5,"V5*bad",6);
+  TEST_ASSERT_TRUE(version.invalid);
+  TEST_ASSERT_EQUAL_STRING("",version.value);
+}
+void test_software_version_bounds_exact_fit_and_overflow() {
+  char first[67]; std::memcpy(first,"SW=",3); std::memset(first+3,'A',63); first[66]=0;
+  SoftwareVersionFields version;
+  version.field(4,first,66);
+  TEST_ASSERT_TRUE(version.recognized);
+  TEST_ASSERT_FALSE(version.invalid);
+  TEST_ASSERT_EQUAL_UINT32(63,std::strlen(version.value));
+  version.field(5,"V1",2);
+  TEST_ASSERT_TRUE(version.invalid);
+  TEST_ASSERT_EQUAL_STRING("",version.value);
+  version=SoftwareVersionFields{};
+  version.field(4,"SW=x",static_cast<std::size_t>(-1));
+  TEST_ASSERT_TRUE(version.invalid);
+  version=SoftwareVersionFields{};
+  version.field(4,first,57); // 54 name bytes + comma + 8 version bytes = 63.
+  version.field(5,"V5.3.0.0",8);
+  TEST_ASSERT_FALSE(version.invalid);
+  TEST_ASSERT_EQUAL_UINT32(63,std::strlen(version.value));
+  TEST_ASSERT_EQUAL_CHAR(0,version.value[63]);
 }
 
 static GsvFields fields(const char* text) {
@@ -148,7 +231,13 @@ int main(int,char**) {
   RUN_TEST(test_documented_checksum_examples);
   RUN_TEST(test_diagnostic_command_preserves_reserved_fields_and_line_endings);
   RUN_TEST(test_command_rejects_small_or_null_buffers_without_partial_output);
+  RUN_TEST(test_restart_and_constellation_commands_match_documented_wire_bytes);
+  RUN_TEST(test_version_query_matches_pinned_upstream_wire_bytes);
+  RUN_TEST(test_explicit_commands_reject_small_null_and_keep_sentinels);
   RUN_TEST(test_antenna_warning_requires_exact_documented_text);
+  RUN_TEST(test_software_version_preserves_optional_comma_version);
+  RUN_TEST(test_software_version_rejects_unknown_prefixes_and_malformed_text);
+  RUN_TEST(test_software_version_bounds_exact_fit_and_overflow);
   RUN_TEST(test_complete_gsv_group_accumulates_cn0_instead_of_latest_fragment_only);
   RUN_TEST(test_blank_cn0_is_unknown_and_zero_cn0_is_reported_separately);
   RUN_TEST(test_talkers_are_separate_and_empty_group_is_available_zero);
