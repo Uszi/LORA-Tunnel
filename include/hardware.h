@@ -1,16 +1,24 @@
 #pragma once
 
 #include <Arduino.h>
-#include <LovyanGFX.hpp>
+#include "graphics_compat.h"
+#include "keyboard_input.h"
 #include <SPI.h>
 
 namespace hw {
-// Initializes power, shared display/SD SPI, display and polled touch bus.
-// The caller must serialize display calls and SD operations using one mutex.
-// This function does not mount SD, start GNSS UART, or enable the LoRa FEM.
+// Initializes the board peripherals and SPI buses once, before tasks start.
+// Respect board::DISPLAY_SHARED_WITH_SD and board::LORA_SHARED_WITH_SD when
+// serializing access. Does not mount SD, start GNSS UART or enable LoRa RX.
 bool begin();
 lgfx::LGFX_Device& display();
 SPIClass& peripheralSpi();
+SPIClass& radioSpi();
+bool loraFrontendPresent();
+bool inputReady();
+// Call from one UI task, at most eight events per tick. Press edges are queued;
+// directions and Backspace repeat after 400 ms, every 80 ms. Text never repeats.
+// This remains available even when optional navigation buttons are disabled.
+bool pollKeyboard(input::KeyEvent& event);
 bool touch(uint16_t& x, uint16_t& y);
 bool touchPresent();
 enum NavigationButton : uint8_t { Next = 1, Select = 2, Back = 4 };
@@ -23,9 +31,9 @@ float batteryVolts();
 // Call only while SX1262 is in standby/RX, with DIO2 RF-switch control set up.
 // No transmit operation is provided by this hardware layer.
 void setLoRaFrontend(bool enabled, bool lna = false);
-// Software sleep only: physical POWER/S3 drives the EC190708 battery latch
-// directly and has no MCU connection in the Expansion V2.03 schematic.
-// Prepare the USER/GPIO0 active-low wake source while peripherals remain on.
+// Software sleep only. Heltec POWER/S3 is an independent battery latch;
+// Cardputer has a physical switch and its cap GNSS supply is not MCU-switched.
+// Prepare the USER/G0 GPIO0 active-low wake while peripherals remain on.
 // Returns false if USER is held or wake configuration fails; display stays on.
 bool prepareSleepHardware();
 // Restore ordinary USER input if a later preparation step aborts before sleep.
@@ -35,7 +43,7 @@ void cancelSleepPreparation();
 // are stopped, SD files are flushed/closed and SD.end() has completed, radios
 // are off and GNSS UART is ended. Caller must exclusively own the display/SPI
 // bus and perform no further hardware work. Wake via USER restarts the firmware.
-// This powers down switched peripherals and deep-sleeps ESP32; it does not
+// This shuts down controllable peripherals and deep-sleeps ESP32; it does not
 // disconnect the battery or claim zero consumption. It never returns.
 [[noreturn]] void enterDeepSleep();
 }

@@ -12,19 +12,45 @@
     "preamble_symbols": 16,
     "lna": false
   },
-  "schedule": {"wifi_dwell_ms": 120, "ble_window_ms": 2500},
-  "ui": {"buttons_enabled": true},
+  "schedule": {
+    "wifi_dwell_ms": 120,
+    "ble_window_ms": 2500
+  },
+  "ui": {
+    "buttons_enabled": true
+  },
   "recon": {
     "buzzer": true,
     "display_min": "low",
     "alert_min": "medium",
-    "categories": ["alpr", "flock", "axon", "ibeacon", "ring", "camera", "drone", "airtag", "tracker", "glasses", "raven", "skimmer", "hacker", "custom"]
+    "categories": [
+      "alpr",
+      "flock",
+      "axon",
+      "ibeacon",
+      "ring",
+      "camera",
+      "drone",
+      "airtag",
+      "tracker",
+      "glasses",
+      "raven",
+      "skimmer",
+      "hacker",
+      "custom"
+    ]
   },
   "credentials": {
     "wigle_api_name": "",
     "wigle_api_token": "",
     "wdgwars_token": "",
     "wifi_ssid": "",
-    "wifi_password": ""
+    "wifi_password": "",
+    "wardrift_api_token": ""
+  },
+  "uploads": {
+    "wigle": false,
+    "wardrift": false,
+    "wdgwars": false
   }
 }

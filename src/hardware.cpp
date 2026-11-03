@@ -2,6 +2,7 @@
 #include "board_config.h"
 #include "button_input.h"
 
+#if !defined(LORA_TUNNEL_CARDPUTER_ADV)
 #include <Wire.h>
 #include <driver/gpio.h>
 #include <driver/rtc_io.h>
@@ -12,6 +13,7 @@
 namespace {
 // On ESP32-S3 Arduino HSPI is SPI3; FSPI/SPI2 remains available for SX1262.
 SPIClass peripheralBus(HSPI);
+SPIClass radioBus(FSPI);
 
 class TunnelDisplay final : public lgfx::LGFX_Device {
   lgfx::Bus_SPI bus_;
@@ -66,6 +68,7 @@ public:
 
 TunnelDisplay screen;
 bool hasTouch = false;
+bool initialized = false, hardwareReady = false;
 tunnel::ButtonInput userButton;
 tunnel::ButtonInput secondaryButton(false);
 
@@ -106,6 +109,8 @@ void outputLevel(int pin, int level) {
 
 namespace hw {
 bool begin() {
+  if (initialized) return hardwareReady;
+  initialized = true;
   releaseSleepHolds();
   // Keep the front-end disabled throughout boot and hardware diagnostics.
   outputLevel(board::FEM_ENABLE, LOW);
@@ -126,8 +131,10 @@ bool begin() {
   analogSetPinAttenuation(board::BATTERY_ADC, ADC_2_5db);
 
   delay(1000); // Peripheral power settling, before any concurrent tasks start.
-  peripheralBus.begin(board::LCD_SCK, board::LCD_MISO, board::LCD_MOSI,
-                      board::SD_CS);
+  const bool peripheralReady = peripheralBus.begin(board::LCD_SCK,
+      board::LCD_MISO, board::LCD_MOSI, board::SD_CS);
+  const bool radioReady = radioBus.begin(board::LORA_SCK, board::LORA_MISO,
+      board::LORA_MOSI, board::LORA_CS);
   const bool displayInitialized = screen.init();
   screen.setRotation(board::DISPLAY_ROTATION);
   screen.setBrightness(150);
@@ -138,11 +145,18 @@ bool begin() {
   delay(60);
   Wire.beginTransmission(board::TOUCH_ADDRESS);
   hasTouch = Wire.endTransmission() == 0;
-  return displayInitialized;
+  hardwareReady = displayInitialized && peripheralReady && radioReady;
+  Serial.printf("LT HARDWARE target=%s spi=%d\n", board::TARGET_ID,
+                peripheralReady && radioReady);
+  return hardwareReady;
 }
 
 lgfx::LGFX_Device& display() { return screen; }
 SPIClass& peripheralSpi() { return peripheralBus; }
+SPIClass& radioSpi() { return radioBus; }
+bool loraFrontendPresent() { return true; }
+bool inputReady() { return hasTouch; }
+bool pollKeyboard(input::KeyEvent&) { return false; }
 bool touchPresent() { return hasTouch; }
 
 uint8_t navigationButtons() {
@@ -240,6 +254,7 @@ void cancelSleepPreparation() {
   screen.waitDisplay();
   Wire.end();
   peripheralBus.end();
+  radioBus.end();
   hasTouch=false;
 
   // Drive no SPI/I2C/UART signal high into a peripheral whose rail is removed.
@@ -269,3 +284,4 @@ void cancelSleepPreparation() {
   esp_deep_sleep_start();
 }
 }
+#endif

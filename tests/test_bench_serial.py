@@ -61,6 +61,17 @@ class BenchSerialTests(unittest.TestCase):
                                  sleep=clock.sleep, emit=output.append)
         return result, connection, "\n".join(output)
 
+    def test_optional_cardputer_metrics_are_allowlisted_and_validated(self):
+        fields=dict(target="cardputer-adv-lora1262",min_internal=40000,largest_internal=20000,
+                    loop_stack=2048,writer_stack=2048,ui_p95_ms=40,ui_max_ms=80,upload=0)
+        result,_,output=self.exercise(responder=lambda *_: status(**fields,untrusted="private"))
+        self.assertEqual(result,0)
+        self.assertIn("min_internal=40000",output)
+        self.assertIn("target=cardputer-adv-lora1262",output)
+        self.assertNotIn("private",output)
+        self.assertIsNone(bench.parse_status(status(**dict(fields,ui_max_ms=-1)).decode().strip()))
+        self.assertIsNone(bench.parse_status(status(**dict(fields,upload=2)).decode().strip()))
+
     def test_silent_device_fails_even_with_stale_buffered_status(self):
         result, connection, output = self.exercise(responder=lambda *_: b"", initial=status())
         self.assertNotEqual(result, 0)

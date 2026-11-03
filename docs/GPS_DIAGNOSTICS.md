@@ -1,5 +1,7 @@
 # GNSS diagnostics
 
+The recorded fixes and PCAS receiver commands below belong to the Heltec receiver. Cardputer ADV + U214 uses its own GNSS profile; its firmware rejects the Heltec-only PCAS controls. U214 GNSS acceptance is pending and cannot be inferred from these Heltec results.
+
 **Current status, 2026-11-01: GPS positioning is physically confirmed on installed 0.3.0-beta.1.** A read-only query at 153,181 ms uptime reported `gps_fix=1`, six satellites, GGA quality 1, RMC A and GSA fix type 3. The accepted location age was 182 ms; 1,286 sentence checksums passed and none failed in that parser epoch. No coordinates were printed. [VALIDATION.md](VALIDATION.md) records the build, verified installation and scoped capture result.
 
 The earlier 0.2.3-dev check independently recorded a fresh 3D fix with five satellites, location age 341 ms and 11,500 valid/zero failed checksums after the user reported working GPS. Both observations remain version-specific. They do not establish the cause of the earlier acquisition difficulty, repeated time to first fix, loss/reacquisition behavior or geotagged SD-file contents. Earlier no-fix windows below remain accurate historical observations; they do not describe the current result.

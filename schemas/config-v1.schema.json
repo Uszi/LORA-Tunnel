@@ -15,7 +15,7 @@
       "properties": {
         "enabled": {"type": "boolean", "default": false, "description": "Fresh installations keep LoRa off until an explicit region selection. This firmware only receives; it never transmits."},
         "selection_complete": {"type": "boolean", "default": false, "description": "An explicit Skip saves true with region UNSET, completing first setup while leaving LoRa disabled. Supported named regions and valid legacy US configurations also count as a completed choice."},
-        "region": {"enum": ["UNSET", "US", "EU_868", "ANZ", "CN", "JP", "KR", "TW", "RU", "IN", "NZ_865", "TH", "UA_868", "MY_919", "SG_923", "PH_868", "PH_915", "KZ_863", "NP_865", "BR_902", "EU_433", "ANZ_433", "UA_433", "MY_433", "PH_433", "KZ_433"], "default": "UNSET", "description": "Omitted on legacy schema-1 files: enabled or explicit-frequency configs retain previous US settings; a bare disabled config remains UNSET. 433/470 MHz profiles require other hardware and cannot be enabled on this 863-928 MHz target."},
+        "region": {"enum": ["UNSET", "US", "EU_868", "ANZ", "CN", "JP", "KR", "TW", "RU", "IN", "NZ_865", "TH", "UA_868", "MY_919", "SG_923", "PH_868", "PH_915", "KZ_863", "NP_865", "BR_902", "EU_433", "ANZ_433", "UA_433", "MY_433", "PH_433", "KZ_433"], "default": "UNSET", "description": "Omitted on legacy schema-1 files: enabled or explicit-frequency configs retain previous US settings; a bare disabled config remains UNSET. 433/470 MHz profiles require other hardware. Firmware validates occupied bandwidth against the target: Heltec 863-928 MHz or Cardputer U214 868-923 MHz."},
         "name": {"type": "string", "maxLength": 39, "description": "Firmware limit is 39 UTF-8 bytes, not arbitrary Unicode characters."},
         "frequency_mhz": {"type": "number", "anyOf": [{"const": 0}, {"minimum": 433, "maximum": 928}], "description": "UNSET uses zero. A named region defaults to its LongFast center when omitted; firmware also requires the full selected bandwidth to fit that region. Legacy configs without region remain limited to 902-928 MHz."},
         "bandwidth_khz": {"enum": [125, 250, 500], "default": 250},
@@ -54,18 +54,28 @@
     },
     "ui": {
       "type": "object", "additionalProperties": true,
-      "properties": {"buttons_enabled": {"type": "boolean", "default": true, "description": "Enable the physical-button shortcuts; touchscreen controls remain available."}}
+      "properties": {"buttons_enabled": {"type": "boolean", "default": true, "description": "Enable the physical-button shortcuts; Cardputer keyboard and Heltec touchscreen controls remain available."}}
+    },
+    "uploads": {
+      "type": "object", "additionalProperties": true,
+      "description": "Explicit opt-in per service. Only closed Wardriver sessions are eligible while capture is stopped and configured home Wi-Fi is available. Never automatically pauses capture.",
+      "properties": {
+        "wigle": {"type": "boolean", "default": false},
+        "wardrift": {"type": "boolean", "default": false},
+        "wdgwars": {"type": "boolean", "default": false}
+      }
     },
     "credentials": {
       "type": "object",
       "additionalProperties": true,
-      "description": "Private SD plaintext settings, masked in UI. Storage does not imply uploads are implemented. Never include real values in examples/logs/source control.",
+      "description": "Private SD plaintext settings, masked in UI. Automatic sending requires the corresponding uploads switch. Never include real values in examples/logs/source control.",
       "properties": {
         "wigle_api_name": {"$ref": "#/$defs/credential"},
         "wigle_api_token": {"$ref": "#/$defs/credential"},
         "wdgwars_token": {"$ref": "#/$defs/credential"},
         "wifi_ssid": {"$ref": "#/$defs/credential"},
-        "wifi_password": {"$ref": "#/$defs/credential"}
+        "wifi_password": {"$ref": "#/$defs/credential"},
+        "wardrift_api_token": {"$ref": "#/$defs/credential"}
       }
     }
   },

@@ -1,5 +1,13 @@
 # Library sources and rebuilding modified firmware
 
+For Cardputer ADV 0.4.0-beta.1, use its separately named matching source and
+relink archives and substitute `cardputer-adv-lora1262` for the Heltec environment
+in the commands/paths below. Its companion contains M5Cardputer at commit
+`2d4fa6646e4e5b47e0af96214b003aa7b15b8d81`, M5Unified 0.2.29, M5GFX 0.2.36,
+IRremote 4.5.0 and the common ArduinoJson/NimBLE/RadioLib/TinyGPSPlus libraries.
+Complete nested Adafruit keyboard and font sources/notices remain included.
+The preserved Heltec 0.3.0-beta.1 companion and binary are unchanged.
+
 LORA Tunnel's original application is MIT licensed. Its firmware also links
 Arduino-ESP32 and TinyGPSPlus under LGPL-2.1-or-later, alongside components
 under their own MIT, BSD, Apache and other licenses. The application's MIT

@@ -180,7 +180,7 @@ overwrite the receiver's `gps` object.
 
 ## Summaries, bounds and interrupted logs
 
-The UI maintains **64 shared RAM summary slots** with least-recently-seen
+The UI maintains **64 shared RAM summary slots on Heltec, or 32 on Cardputer** with least-recently-seen
 replacement. Wi-Fi/BLE summaries use kind/address/type; LoRa summaries use a
 clearly marked candidate sender or packet fingerprint. A summary eviction
 discards only that RAM view. Observation logging is requested before summary
@@ -188,8 +188,7 @@ update, so eviction does not erase historical observations already captured in
 the native log. Summary totals are bounded sightings, not a census of unique
 physical devices or a full session database.
 
-The current pipeline uses a **48-observation capture queue** and **32-observation
-logger queue**, both with explicitly allocated PSRAM payload storage. The
+Heltec uses a **48-observation capture queue** and **32-observation logger queue** with PSRAM payload storage. Cardputer uses **12 capture records** and **8 logger records** in internal RAM because it has no PSRAM. The
 observation's raw array has **1024 bytes**; acquisition/serialization bounds are
 Wi-Fi 1024, BLE 512 and LoRa 255 bytes. The logger has an **8192-byte static JSON
 document arena**, **8192-byte SD write buffer**, and **12288-byte writer stack**
@@ -198,7 +197,7 @@ initialization fail explicitly. Oversized/overflowing JSON records increment the
 log-drop counter rather than overflowing the write buffer. Writer flushes occur
 approximately every two seconds, on buffer pressure, and at orderly stop.
 Queue overflow, malformed records and write errors have visible counters.
-SD writes share a mutex with TFT operations; slow-card effects require hardware
+Heltec SD writes share a mutex with TFT operations; Cardputer SD shares its peripheral bus with LoRa while the display has a separate bus. Slow-card effects require hardware
 measurement. These limits bound application allocations but do not prove total
 framework heap use or watchdog behavior under load.
 
@@ -217,9 +216,7 @@ uploaded.
 ## SD configuration
 
 `schemas/config-v1.schema.json` describes `/lora-tunnel/config.json`. Implemented
-sections include `lora`, `schedule`, `recon`, `ui.buttons_enabled`, and
-`credentials`. A missing config uses this user's confirmed United States / 915
-MHz defaults with US LongFast reception enabled. An existing invalid config
+sections include `lora`, `schedule`, `recon`, `ui.buttons_enabled`, `credentials`, and 0.4's per-service `uploads` toggles. Missing configuration restores a previously saved compatible region from NVS when available; a fresh device starts UNSET with LoRa disabled. An existing invalid config
 without a usable backup disables LoRa and reports the problem. A valid previous
 configuration may be recovered from `config.bak`; saving credentials uses a
 validated temporary file before promotion and preserves a usable backup.
@@ -237,7 +234,4 @@ Credential buffers hold at most 127 UTF-8 bytes each. JSON Schema `maxLength`
 counts characters, so firmware byte limits remain authoritative for non-ASCII
 input. Config strings longer than firmware buffers can be truncated on load;
 keep them within their byte limits. Plaintext SD credentials are masked in UI
-and excluded from logs/source control. Storing them does not mean firmware
-uploads or auto-upload are implemented. This milestone has no upload scheduler
-or network submission control; additional unrecognized config fields are
-forward-compatible data, not active features.
+and excluded from logs/source control. Credential storage alone does not enable automatic uploads: 0.4 requires explicit service toggles, and sends only completed eligible sessions while capture is stopped. Per-service receipts/checkpoints live separately under `/lora-tunnel/uploads`; original JSONL sessions are retained. See [UPLOADS.md](UPLOADS.md). The published Heltec 0.3.0-beta.1 has no uploader.

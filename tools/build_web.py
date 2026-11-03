@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stage the public beta site from a checked factory image and matching source ZIP.
+"""Stage a two-target installer from independently checked firmware/source artifacts.
 
 Does not flash devices, contact upload services, or publish the website.
 Install the pinned host dependency from tools/site-requirements.txt first.
@@ -28,6 +28,25 @@ GUIDES = ("USER_GUIDE", "UI_GUIDE", "HARDWARE", "WEB_FLASHER", "RECOVERY",
           "ARCHITECTURE", "TEST_CHECKLIST", "GPS_DIAGNOSTICS", "LORA", "RELINKING", "REGIONS")
 
 
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import package_cardputer as cardputer
+
+HELTEC_FACTORY_SHA = "e6905bfe5521e2f9887a9628dcaf55870b8b44cba2c92c1f8e3c671ee1533a77"
+HELTEC_SOURCE_SHA = "519d91704d2572c8b705912bb17105e1dc348e9e3a7db3141ef2f876e558dd85"
+HELTEC_COMMIT = "50da5b915fb75d5e12b2bfaae6f7479a4fafec07"
+TARGETS = {
+    TARGET: {"name": "Heltec Expansion V2 / V4-R8", "flash_bytes": 16777216,
+             "psram_bytes": 8388608, "filename": "Heltec-V4-R8-TFT-HIGH-BAND"},
+    cardputer.TARGET: {"name": "Cardputer ADV + Cap LoRa-1262", "flash_bytes": 8388608,
+                      "psram_bytes": 0, "filename": "Cardputer-ADV-LoRa1262"},
+}
+SAFE_SD = ("sdcard/README.md", "sdcard/lora-tunnel/config.example.json",
+           "sdcard/lora-tunnel/detection_rules.json", "sdcard/lora-tunnel/detection_rules.example.json",
+           "sdcard/lora-tunnel/vendor-prefixes.csv", "sdcard/lora-tunnel/vendor-prefixes.README.md",
+           "sdcard/lora-tunnel/vendor-prefixes.LICENSE.txt")
+
+
 def digest(data):
     return hashlib.sha256(data).hexdigest()
 
@@ -40,9 +59,14 @@ def checked_repo(value, host):
     return value.rstrip("/")
 
 
-def validate_factory(data, version, expected_sha):
+def validate_factory(data, version, expected_sha, target=TARGET):
     if not re.fullmatch(r"[0-9a-f]{64}", expected_sha) or digest(data) != expected_sha:
         raise ValueError("Factory SHA-256 mismatch")
+    if target == cardputer.TARGET:
+        cardputer.validate_factory(data, version)
+        return
+    if target != TARGET:
+        raise ValueError("Unknown hardware target")
     if len(data) < 0x10000 + 256 or len(data) > 16 * 1024 * 1024:
         raise ValueError("Factory length outside the supported image bounds")
     # ESP image header: magic, SPI mode, flash-size nibble and little-endian chip ID.
@@ -139,102 +163,36 @@ def check_links(output):
         LocalLinks(output, page).feed(page.read_text(encoding="utf-8"))
 
 
-def build(args):
-    version_header = (ROOT / "include/version.h").read_text(encoding="utf-8")
-    version_match = VERSION_RE.search(version_header)
-    if not version_match:
-        raise ValueError("Source version must identify an explicit beta release")
-    version = version_match.group(1)
-    github = checked_repo(args.github_url, "github.com")
-    gitea = checked_repo(args.gitea_url, "git.churchofmalware.org") if args.gitea_url else None
-    relink_url = urlsplit(args.relink_url)
-    if (not args.relink_url.startswith(github + "/releases/download/") or
-            relink_url.query or relink_url.fragment or
-            not re.fullmatch(r"[0-9a-f]{64}", args.relink_sha256)):
-        raise ValueError("Use the checked matching GitHub release relinking archive URL and SHA-256")
-    if not re.fullmatch(r"[0-9a-f]{40}", args.commit):
-        raise ValueError("Use the full release source commit SHA")
-    factory_data = args.factory.read_bytes()
-    validate_factory(factory_data, version, args.factory_sha256)
-    source_data = args.source.read_bytes()
-    if digest(source_data) != args.source_sha256:
-        raise ValueError("Source ZIP SHA-256 mismatch")
-    sources = read_source(args.source, version)
-    validate_commit(sources, args.commit)
-    output = args.output.resolve()
-    if output == ROOT or (output.is_relative_to(ROOT) and output.relative_to(ROOT).parts[0] not in ("build-output", "dist")):
-        raise ValueError("Choose an empty build-output/dist folder or a folder outside the source tree")
-    if output.exists() and any(output.iterdir()):
-        raise ValueError("Output must be empty; existing sites are never deleted or overwritten")
-    output.mkdir(parents=True, exist_ok=True)
-    factory_name = f"LORA-Tunnel-{version}-Heltec-V4-R8-TFT-HIGH-BAND-FACTORY-0x0.bin"
-    source_name = f"LORA-Tunnel-{version}-source.zip"
-    sd_name = f"LORA-Tunnel-{version}-SD-setup.zip"
-    tokens = {"VERSION": version, "FACTORY": factory_name, "SOURCE": source_name,
-              "SD": sd_name, "FACTORY_SHA": args.factory_sha256, "GITHUB": github,
-              "GITEA": gitea or "https://git.churchofmalware.org/Valleytech",
-              "RELINK": args.relink_url, "RELINK_SHA": args.relink_sha256}
-    for source_path, source_bytes in sources.items():
-        path = PurePosixPath(source_path)
-        if not source_path.startswith("web/") or any(p.startswith(".") for p in path.parts[1:]):
-            continue
-        destination = output / path.relative_to("web")
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        if path.suffix == ".html":
-            text = source_bytes.decode("utf-8")
-            for key, value in tokens.items():
-                text = text.replace("@@" + key + "@@", html.escape(value, quote=True))
-            if not gitea:
-                text = text.replace("Source on Gitea ↗", "Gitea publication pending ↗")
-            if "@@" in text:
-                raise ValueError("Unresolved public HTML template token")
-            destination.write_text(text, encoding="utf-8")
-        else:
-            destination.write_bytes(source_bytes)
-    vendor = output / "vendor/esp-web-tools-10.4.0"
-    upstream = json.loads((vendor / "UPSTREAM.json").read_text(encoding="utf-8"))
-    if upstream["version"] != "10.4.0":
-        raise ValueError("Unexpected installer dependency version")
-    for name, expected in upstream["files_sha256"].items():
-        if digest((vendor / name).read_bytes()) != expected:
-            raise ValueError("Installer dependency hash mismatch: " + name)
+def checked_file(value, expected, base):
+    path = (base / value).resolve()
+    data = path.read_bytes()
+    if not re.fullmatch(r"[0-9a-f]{64}", expected) or digest(data) != expected:
+        raise ValueError("Artifact SHA-256 mismatch: " + path.name)
+    return path, data
+
+
+def write_json(path, value):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
+
+
+def copy_assets(sources, output):
     (output / "assets/ui").mkdir(parents=True, exist_ok=True)
+    for name, data in sources.items():
+        if name.startswith("assets/ui/") and name.endswith(".png"):
+            dest = output / name
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(data)
     (output / "assets/logo.png").write_bytes(sources["assets/lora-tunnel-radio-logo.png"])
     (output / "assets/vts-official-logo.png").write_bytes(sources["assets/vts-official-logo.png"])
-    for name in ("home.png", "wardriver.png", "recon.png", "detail.png", "settings.png", "keyboard.png",
-                 "regions.png", "power.png", "credentials.png", "splash.png", "overview.png"):
-        (output / "assets/ui" / name).write_bytes(sources["assets/ui/" + name])
-    downloads = output / "downloads"
-    downloads.mkdir()
-    (downloads / factory_name).write_bytes(factory_data)
-    (downloads / source_name).write_bytes(source_data)
-    with zipfile.ZipFile(downloads / sd_name, "x", zipfile.ZIP_DEFLATED) as archive:
-        safe_sd = ("sdcard/README.md", "sdcard/lora-tunnel/config.example.json",
-                   "sdcard/lora-tunnel/detection_rules.json", "sdcard/lora-tunnel/detection_rules.example.json",
-                   "sdcard/lora-tunnel/vendor-prefixes.csv", "sdcard/lora-tunnel/vendor-prefixes.README.md",
-                   "sdcard/lora-tunnel/vendor-prefixes.LICENSE.txt")
-        for name in safe_sd:
-            archive.writestr(name.removeprefix("sdcard/"), sources[name])
-    sums = {factory_name: digest(factory_data), source_name: digest(source_data), sd_name: digest((downloads / sd_name).read_bytes())}
-    (downloads / "SHA256SUMS.txt").write_text("".join(f"{sha}  {name}\n" for name, sha in sums.items()), encoding="utf-8")
-    (output / "LICENSE.txt").write_bytes(sources["LICENSE"])
-    (output / "firmware").mkdir()
-    manifest = {"name": "LORA Tunnel Beta", "version": version, "new_install_prompt_erase": True,
-                "new_install_improv_wait_time": 0,
-                "builds": [{"chipFamily": "ESP32-S3", "parts": [{"path": "../downloads/" + factory_name, "offset": 0}]}]}
-    (output / "firmware/manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
-    release = {"version": version, "channel": "beta", "target": TARGET,
-               "flash_bytes": 16777216, "psram_bytes": 8388608, "flash_mode": "dio",
-               "factory_file": factory_name, "factory_sha256": args.factory_sha256,
-               "source_file": source_name, "source_sha256": args.source_sha256,
-               "source_commit": args.commit, "github": github, "gitea": gitea,
-               "relink_url": args.relink_url, "relink_sha256": args.relink_sha256,
-               "physical_limits": ["new Settings shutdown and USER wake awaiting physical acceptance", "international profiles awaiting regional reception tests",
-                                   "service uploads not implemented", "complete Meshtastic payload decoding not implemented"]}
-    (output / "release.json").write_text(json.dumps(release, indent=2) + "\n", encoding="utf-8")
+
+
+def render_guides(sources, output, version, commit, github):
     guides = {"README.md": "README.html", "sdcard/README.md": "SD_SETUP.html"}
-    guides.update({"docs/" + name + ".md": name + ".html" for name in GUIDES})
-    (output / "guides").mkdir()
+    guides.update({"docs/" + name + ".md": name + ".html"
+                   for name in (*GUIDES, "CARDPUTER_ADV", "CARDPUTER_RELEASE", "CARDPUTER_TEST_PROCEDURE", "CARDPUTER_SOFTWARE_VALIDATION", "UPLOADS")
+                   if "docs/" + name + ".md" in sources})
+    (output / "guides").mkdir(parents=True, exist_ok=True)
     for source, dest in guides.items():
         rendered = markdown.markdown(sources[source].decode("utf-8-sig"), extensions=["extra", "toc", "sane_lists"])
 
@@ -246,12 +204,14 @@ def build(args):
             resolved = posixpath.normpath(posixpath.join(posixpath.dirname(source), unquote(parsed.path)))
             if resolved in guides:
                 link = guides[resolved]
-            elif (resolved.startswith("assets/ui/") and resolved.endswith(".png")) or resolved in ("assets/lora-tunnel-radio-logo.png","assets/vts-official-logo.png"):
-                link = "../" + ("assets/logo.png" if resolved.endswith("radio-logo.png") else resolved)
+            elif resolved.startswith("assets/ui/") and resolved.endswith(".png"):
+                link = "../" + resolved
+            elif resolved in ("assets/lora-tunnel-radio-logo.png", "assets/vts-official-logo.png"):
+                link = "../assets/" + ("logo.png" if resolved.endswith("radio-logo.png") else "vts-official-logo.png")
             elif resolved == "LICENSE":
                 link = "../LICENSE.txt"
             else:
-                link = github + "/blob/" + args.commit + "/" + quote(resolved, safe="/")
+                link = github + "/blob/" + commit + "/" + quote(resolved, safe="/")
             if parsed.fragment:
                 link += "#" + parsed.fragment
             return match.group(1) + '="' + html.escape(link, quote=True) + '"'
@@ -260,11 +220,157 @@ def build(args):
         title = re.search(r"<h1[^>]*>(.*?)</h1>", rendered)
         title = re.sub("<[^>]+>", "", title.group(1)) if title else dest[:-5]
         page = ('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">'
-                '<meta name="theme-color" content="#07120e"><title>' + html.escape(title) + ' · LORA Tunnel</title>'
-                '<link rel="stylesheet" href="../style.css"></head><body><main class="doc">'
-                '<a href="../index.html">← LORA Tunnel beta installer</a> · <a href="USER_GUIDE.html">User guide</a>'
-                '<p class="small-note">Release ' + html.escape(version) + ' · Public beta · ' + html.escape(args.commit[:12]) + '</p>' + rendered + '</main></body></html>')
+                '<title>' + html.escape(title) + ' · LORA Tunnel</title><link rel="stylesheet" href="../style.css"></head>'
+                '<body><main class="doc"><a href="../index.html">LORA Tunnel installer</a>'
+                '<p class="small-note">Release ' + html.escape(version) + ' · ' + html.escape(commit[:12]) +
+                '</p>' + rendered + '</main></body></html>')
         (output / "guides" / dest).write_text(page, encoding="utf-8")
+
+
+def prepare_target(entry, base, github, local_preview):
+    target = entry["target"]
+    if target not in TARGETS:
+        raise ValueError("Unknown hardware target")
+    meta = TARGETS[target]
+    version = entry["version"]
+    if not re.fullmatch(r"\d+\.\d+\.\d+-beta\.\d+", version):
+        raise ValueError("Expected explicit beta version")
+    factory_path, factory = checked_file(entry["factory"], entry["factory_sha256"], base)
+    source_path, source = checked_file(entry["source"], entry["source_sha256"], base)
+    sources = read_source(source_path, version)
+    commit = entry["source_commit"]
+    if not re.fullmatch(r"[0-9a-f]{40}", commit):
+        raise ValueError("Expected full source commit SHA")
+    validate_commit(sources, commit)
+    validate_factory(factory, version, entry["factory_sha256"], target)
+    relink_path, relink = checked_file(entry["relink"], entry["relink_sha256"], base)
+    if source_path.name != f"LORA-Tunnel-{version}-source.zip" or relink_path.name != f"LORA-Tunnel-{version}-relink.zip":
+        raise ValueError("Use the versioned source and dependency companion filenames")
+    with zipfile.ZipFile(relink_path) as archive:
+        companion = json.loads(archive.read("LORA-Tunnel-relink/MANIFEST.json"))
+        if companion["release"] != version or companion["matching_firmware"]["firmware.factory.bin"]["sha256"] != entry["factory_sha256"]:
+            raise ValueError("Dependency companion does not match this firmware")
+    relink_url = github + "/releases/download/v" + version + "/" + relink_path.name
+    public_enabled = entry.get("public_enabled") is True
+    app, sd_data = None, None
+    if target == "cardputer-adv-lora1262":
+        _, app = checked_file(entry["app"], entry["app_sha256"], base)
+        cardputer.validate_factory(factory, version, app)
+        if public_enabled:
+            if not entry.get("acceptance"):
+                raise ValueError("Cardputer public release requires physical acceptance")
+            acceptance = json.loads((base / entry["acceptance"]).read_text(encoding="utf-8"))
+            cardputer.validate_acceptance(acceptance, entry["factory_sha256"], entry["app_sha256"])
+        elif not local_preview:
+            raise ValueError("Cardputer hardware acceptance is pending; use --local-preview for local preparation only")
+    else:
+        # The original Heltec binary/source pair is preserved, not rebuilt or relabelled.
+        if version != "0.3.0-beta.1" or entry["factory_sha256"] != HELTEC_FACTORY_SHA or commit != HELTEC_COMMIT or entry["source_sha256"] != HELTEC_SOURCE_SHA:
+            raise ValueError("Heltec catalog entry must preserve the published 0.3.0-beta.1 release")
+        if entry["relink_sha256"] != "8d2d82cd3b9c76d54885889f56d1f3773d62ffd6555c1541b120c0502899326f":
+            raise ValueError("Preserve the published Heltec dependency companion")
+        _, sd_data = checked_file(entry["sd"], "aa23af1f6c096b45d0c43f82f8cbca2047ba6535c9ed2f3ab0606bee5dd83a33", base)
+    factory_name = f"LORA-Tunnel-{version}-{meta['filename']}-FACTORY-0x0.bin"
+    app_name = f"LORA-Tunnel-{version}-{meta['filename']}-LAUNCHER-APP.bin" if app is not None else None
+    release = {"target": target, "name": meta["name"], "version": version, "channel": "beta",
+               "flash_bytes": meta["flash_bytes"], "psram_bytes": meta["psram_bytes"], "flash_mode": "dio",
+               "factory_file": factory_name, "factory_sha256": entry["factory_sha256"],
+               "source_file": source_path.name, "source_sha256": entry["source_sha256"], "source_commit": commit,
+               "sd_file": f"LORA-Tunnel-{version}-SD-setup.zip",
+               "relink_url": relink_url, "relink_sha256": entry["relink_sha256"],
+               "public_enabled": public_enabled, "hardware_validation": "passed" if public_enabled and app is not None else
+               ("pending" if app is not None else "scoped-existing-release"),
+               "guide": f"targets/{target}/guides/" + ("CARDPUTER_ADV.html" if app is not None else "USER_GUIDE.html"),
+               "manifest": f"firmware/{target}/manifest.json"}
+    if app_name:
+        release.update(app_file=app_name, app_sha256=entry["app_sha256"], app_bytes=len(app))
+    return release, factory, app, source, sources, sd_data
+
+
+def build(args):
+    base = args.catalog.resolve().parent
+    spec = json.loads(args.catalog.read_text(encoding="utf-8"))
+    if spec.get("schema") != 2:
+        raise ValueError("Expected catalog schema 2")
+    github = checked_repo(spec["github"], "github.com")
+    gitea = checked_repo(spec["gitea"], "git.churchofmalware.org")
+    site = spec["site"]
+    site_path, _ = checked_file(site["source"], site["source_sha256"], base)
+    site_sources = read_source(site_path, site["version"])
+    validate_commit(site_sources, site["source_commit"])
+    entries = spec["targets"]
+    if len(entries) != 2 or {e["target"] for e in entries} != set(TARGETS):
+        raise ValueError("Catalog must contain exactly the preserved Heltec and Cardputer ADV targets")
+    prepared = [prepare_target(entry, base, github, args.local_preview) for entry in entries]
+    output = args.output.resolve()
+    if output == ROOT or (output.is_relative_to(ROOT) and output.relative_to(ROOT).parts[0] not in ("build-output", "dist")):
+        raise ValueError("Choose an empty build-output/dist folder or a folder outside the source tree")
+    if output.exists() and any(output.iterdir()):
+        raise ValueError("Output must be empty; existing sites are never deleted or overwritten")
+    output.mkdir(parents=True, exist_ok=True)
+    for name, data in site_sources.items():
+        if name.startswith("web/") and not any(p.startswith(".") for p in PurePosixPath(name).parts[1:]):
+            path = output / name.removeprefix("web/")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if path.suffix == ".html":
+                content = data.decode("utf-8")
+                for key, value in {"VERSION": site["version"], "GITHUB": github, "GITEA": gitea}.items():
+                    content = content.replace("@@" + key + "@@", html.escape(value, quote=True))
+                if "@@" in content:
+                    raise ValueError("Unresolved public HTML template token")
+                path.write_text(content, encoding="utf-8")
+            else:
+                path.write_bytes(data)
+    vendor = output / "vendor/esp-web-tools-10.4.0"
+    upstream = json.loads((vendor / "UPSTREAM.json").read_text(encoding="utf-8"))
+    if upstream["version"] != "10.4.0" or any(digest((vendor / n).read_bytes()) != h for n, h in upstream["files_sha256"].items()):
+        raise ValueError("Installer dependency hash mismatch")
+    copy_assets(site_sources, output)
+    (output / "LICENSE.txt").write_bytes(site_sources["LICENSE"])
+    render_guides(site_sources, output, site["version"], site["source_commit"], github)
+    downloads = output / "downloads"
+    downloads.mkdir()
+    releases = []
+    for release, factory, app, source, sources, sd_data in prepared:
+        (downloads / release["factory_file"]).write_bytes(factory)
+        (downloads / release["source_file"]).write_bytes(source)
+        if app is not None:
+            (downloads / release["app_file"]).write_bytes(app)
+        if sd_data is not None:
+            (downloads / release["sd_file"]).write_bytes(sd_data)
+        else:
+            with zipfile.ZipFile(downloads / release["sd_file"], "x", zipfile.ZIP_DEFLATED) as archive:
+                for name in SAFE_SD:
+                    info = zipfile.ZipInfo(name.removeprefix("sdcard/"), (1980, 1, 1, 0, 0, 0))
+                    info.compress_type = zipfile.ZIP_DEFLATED
+                    archive.writestr(info, sources[name])
+        release.update(github=github, gitea=gitea)
+        manifest = {"name": "LORA Tunnel — " + release["name"], "version": release["version"],
+                    "new_install_prompt_erase": True, "new_install_improv_wait_time": 0,
+                    "builds": [{"chipFamily": "ESP32-S3", "parts": [
+                        {"path": "../../downloads/" + release["factory_file"], "offset": 0}]}]}
+        write_json(output / release["manifest"], manifest)
+        write_json(output / "firmware" / release["target"] / "release.json", release)
+        target_dir = output / "targets" / release["target"]
+        copy_assets(sources, target_dir)
+        (target_dir / "style.css").write_bytes(site_sources["web/style.css"])
+        (target_dir / "LICENSE.txt").write_bytes(sources["LICENSE"])
+        (target_dir / "index.html").write_text('<!doctype html><meta charset="utf-8"><a href="../../index.html#install">Choose hardware and install LORA Tunnel</a>', encoding="utf-8")
+        render_guides(sources, target_dir, release["version"], release["source_commit"], github)
+        if release["target"] == TARGET:
+            # Existing integration URLs keep their Heltec-only contract.
+            legacy_manifest = json.loads(json.dumps(manifest))
+            legacy_manifest["builds"][0]["parts"][0]["path"] = "../downloads/" + release["factory_file"]
+            write_json(output / "firmware/manifest.json", legacy_manifest)
+            write_json(output / "release.json", release)
+        releases.append(release)
+    sums = {p.name: digest(p.read_bytes()) for p in sorted(downloads.iterdir())}
+    (downloads / "SHA256SUMS.txt").write_text("".join(f"{h}  {n}\n" for n, h in sums.items()), encoding="ascii")
+    catalog = {"schema": 2, "site_version": site["version"], "site_commit": site["source_commit"],
+               "local_preview": args.local_preview, "targets": releases}
+    write_json(output / "catalog.json", catalog)
+    write_json(output / "PUBLICATION.json", {"publishable": not args.local_preview and all(r["public_enabled"] for r in releases),
+                                             "reason": "Local acceptance preparation only" if args.local_preview else "Hardware acceptance checked"})
     check_links(output)
     inventory = {}
     for path in sorted(output.rglob("*")):
@@ -272,24 +378,15 @@ def build(args):
             if path.stat().st_size > MAX_FILE:
                 raise ValueError("Cloudflare Pages per-file limit exceeded: " + path.name)
             inventory[path.relative_to(output).as_posix()] = digest(path.read_bytes())
-    (output / "SITE-SHA256.json").write_text(json.dumps(inventory, indent=2) + "\n", encoding="utf-8")
-    print(f"Staged {version}: {len(inventory)} public files; local links, source version, image header and hashes checked")
-    print(f"Factory SHA256 {args.factory_sha256}")
-    print(f"Source SHA256 {args.source_sha256}")
+    write_json(output / "SITE-SHA256.json", inventory)
+    print(f"Staged {len(releases)} targets, {len(inventory)} files; local_preview={args.local_preview}; no publication performed")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--factory", type=Path, required=True)
-    parser.add_argument("--factory-sha256", required=True)
-    parser.add_argument("--source", type=Path, required=True)
-    parser.add_argument("--source-sha256", required=True)
-    parser.add_argument("--github-url", required=True)
-    parser.add_argument("--gitea-url", help="Omit while Gitea publication is blocked; account link is labelled pending")
-    parser.add_argument("--commit", required=True)
-    parser.add_argument("--relink-url", required=True, help="Verified matching release source/relink companion download")
-    parser.add_argument("--relink-sha256", required=True)
+    parser.add_argument("--catalog", type=Path, required=True, help="Local artifact input catalog; see docs/CARDPUTER_RELEASE.md")
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--local-preview", action="store_true", help="Prepare unaccepted hardware locally; never deploy this output")
     build(parser.parse_args())
 
 

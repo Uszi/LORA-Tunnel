@@ -12,11 +12,14 @@
 #include "ui.h"
 #include "version.h"
 #include "shutdown_guard.h"
+#include "resource_memory.h"
+#include "uploader.h"
 
 using namespace tunnel;
 namespace {
 ui::Model model;
-bool ready=false,stopping=false;
+bool ready=false,stopping=false,hardwareReady=false;
+bool startAfterUpload=false;
 bool shutdownPending=false,shutdownHadSession=false;
 uint32_t shutdownAt=0,shutdownErrors=0,shutdownDrops=0;
 esp_timer_handle_t shutdownTimer=nullptr;
@@ -38,7 +41,7 @@ struct Summary {
   uint32_t seen=0,alertAt=0;
   uint64_t last=0;
 };
-Summary summaries[64];
+Summary summaries[board::SUMMARY_RECORDS];
 
 void callback(ui::Action action,int field,const char* value) {
   Action request{}; request.action=action; request.field=field;
@@ -127,6 +130,10 @@ void requestSession() {
     strlcpy(model.notice,"Finishing SD writes...",sizeof(model.notice));
     return;
   }
+  if(uploaderBusy()) {
+    uploaderCancel(); startAfterUpload=true;
+    strlcpy(model.notice,"Cancelling upload before capture",sizeof(model.notice)); return;
+  }
   if(!ready || stopping || !loggerIdle()) { strlcpy(model.notice,"Not ready; check diagnostics",sizeof(model.notice)); return; }
   if(gnssControlPending()) { strlcpy(model.notice,"GPS restarting; try Start shortly",sizeof(model.notice)); return; }
   // Missing card is recoverable: require mount before recording a session.
@@ -161,11 +168,27 @@ void performActions() {
     return;
   }
   switch(action.action) {
+    case ui::Action::ToggleAutoUpload:
+      if(capturing || stopping || !loggerIdle() || uploaderBusy()) strlcpy(model.notice,"Stop capture/upload before changing",sizeof(model.notice));
+      else if(!storageReady()) strlcpy(model.notice,"No SD: upload setting not saved",sizeof(model.notice));
+      else {
+        xSemaphoreTake(busMutex,portMAX_DELAY);
+        const bool ok=saveAutoUpload(action.field,!strcmp(action.value,"1"));
+        xSemaphoreGive(busMutex);
+        if(ok) uploaderConfigChanged();
+        strlcpy(model.notice,ok?"Upload preference saved":"Upload preference save failed",sizeof(model.notice));
+      }
+      break;
+    case ui::Action::UploadNow:
+      if(capturing || stopping || !loggerIdle() || !ready) strlcpy(model.notice,"Stop and save before upload",sizeof(model.notice));
+      else if(!uploaderRequest(action.field)) strlcpy(model.notice,"Upload unavailable; check settings",sizeof(model.notice));
+      break;
+    case ui::Action::CancelUpload: uploaderCancel(); startAfterUpload=false; break;
     case ui::Action::ToggleSession: requestSession(); break;
     case ui::Action::ToggleMode: selectMode(action.field==1); break;
     case ui::Action::ToggleAlerts: config.buzzer=action.field==1; break;
     case ui::Action::SaveRegion:
-      if(capturing || stopping || !loggerIdle()) strlcpy(model.notice,"Stop and save before changing region",sizeof(model.notice));
+      if(capturing || stopping || !loggerIdle() || uploaderBusy()) strlcpy(model.notice,"Stop and save before changing region",sizeof(model.notice));
       else if(xSemaphoreTake(busMutex,pdMS_TO_TICKS(300))!=pdTRUE)
         strlcpy(model.notice,"Storage busy; region was not changed",sizeof(model.notice));
       else {
@@ -180,6 +203,7 @@ void performActions() {
       break;
     case ui::Action::Shutdown:
       if(!shutdownPending) {
+        uploaderCancel(); startAfterUpload=false;
         shutdownHadSession=capturing.load() || stopping || !loggerIdle();
         shutdownErrors=counters.storage_errors.load(); shutdownDrops=counters.log_drops.load();
         model.shutdown_error[0]=0;
@@ -188,7 +212,7 @@ void performActions() {
       }
       break;
     case ui::Action::RetryStorage:
-      if(capturing || stopping || !loggerIdle()) strlcpy(model.notice,"Stop session before remounting SD",sizeof(model.notice));
+      if(capturing || stopping || !loggerIdle() || uploaderBusy()) strlcpy(model.notice,"Stop session before remounting SD",sizeof(model.notice));
       else {
         xSemaphoreTake(busMutex,portMAX_DELAY);
         bool ok=mountStorage(); xSemaphoreGive(busMutex);
@@ -196,12 +220,13 @@ void performActions() {
       }
       break;
     case ui::Action::SaveCredential:
-      if(capturing || stopping || !loggerIdle()) strlcpy(model.notice,"Stop session before saving keys",sizeof(model.notice));
+      if(capturing || stopping || !loggerIdle() || uploaderBusy()) strlcpy(model.notice,"Stop session before saving keys",sizeof(model.notice));
       else if(!storageReady()) strlcpy(model.notice,"No SD: key was not saved",sizeof(model.notice));
       else {
         xSemaphoreTake(busMutex,portMAX_DELAY);
         bool ok=saveCredential(action.field,action.value); xSemaphoreGive(busMutex);
-        strlcpy(model.notice,ok?"Key saved. Uploads not yet enabled.":"Save failed; previous config retained",sizeof(model.notice));
+        if(ok) uploaderConfigChanged();
+        strlcpy(model.notice,ok?"Credential saved; see Uploads settings":"Save failed; previous config retained",sizeof(model.notice));
       }
       break;
   }
@@ -215,6 +240,8 @@ void refreshModel() {
   model.errors=counters.storage_errors+counters.radio_errors+counters.malformed;
   model.nmea_chars=gnssCharacters();
   model.buttons_enabled=config.buttons_enabled; model.recon_alerts=config.buzzer;
+  model.auto_wigle=config.auto_wigle; model.auto_wardrift=config.auto_wardrift; model.auto_wdgwars=config.auto_wdgwars;
+  model.upload_busy=uploaderBusy(); uploaderStatus(model.upload_status,sizeof(model.upload_status));
   model.region_configured=regionConfigured(); model.region_selection_made=regionSelectionMade();
   strlcpy(model.region,config.region,sizeof(model.region)); model.shutting_down=shutdownPending;
   model.recon_total=reconTotal;
@@ -231,10 +258,10 @@ void refreshModel() {
   strlcpy(model.profile,config.lora_enabled?config.profile:"OFF: Settings > LoRa region",sizeof(model.profile));
   memset(model.recent,0,sizeof(model.recent));
   for(unsigned type=0;type<3;type++) {
-    bool chosen[64]{};
+    bool chosen[board::SUMMARY_RECORDS]{};
     for(unsigned line=0;line<4;line++) {
       int pick=-1;
-      for(unsigned i=0;i<64;i++) if(summaries[i].used && unsigned(summaries[i].kind)==type && !chosen[i] && (pick<0 || summaries[i].last>summaries[pick].last)) pick=i;
+      for(unsigned i=0;i<board::SUMMARY_RECORDS;i++) if(summaries[i].used && unsigned(summaries[i].kind)==type && !chosen[i] && (pick<0 || summaries[i].last>summaries[pick].last)) pick=i;
       if(pick<0) break;
       chosen[pick]=true;
       const Summary& summary=summaries[pick];
@@ -246,10 +273,10 @@ void refreshModel() {
   memset(model.recon_evidence,0,sizeof(model.recon_evidence));
   memset(model.recon_categories,0,sizeof(model.recon_categories));
   memset(model.recon_confidence,0,sizeof(model.recon_confidence));
-  bool chosen[64]{};
+  bool chosen[board::SUMMARY_RECORDS]{};
   for(unsigned line=0;line<8;++line) {
     int pick=-1;
-    for(unsigned i=0;i<64;++i) if(summaries[i].used && summaries[i].category!=recon::Category::None &&
+    for(unsigned i=0;i<board::SUMMARY_RECORDS;++i) if(summaries[i].used && summaries[i].category!=recon::Category::None &&
        unsigned(summaries[i].confidence)>=config.recon_display_min && !chosen[i] &&
        (pick<0 || summaries[i].last>summaries[pick].last)) pick=i;
     if(pick<0) break;
@@ -262,12 +289,16 @@ void refreshModel() {
 }
 void serialStatus() {
   const auto fix=currentFix();
-  Serial.printf("LT STATUS version=%s uptime_ms=%lu ready=%d running=%d saving=%d sd=%d touch=%d lora=%d gps_chars=%lu gps_fix=%d sats=%u wifi=%lu ble=%lu lora_rx=%lu drops=%lu errors=%lu free_heap=%u mode=%s matches=%lu free_psram=%u quiet=%d\n",
-    TUNNEL_VERSION,(unsigned long)millis(),ready,capturing.load(),stopping,storageReady(),hw::touchPresent(),loraReady(),gnssCharacters(),fix.valid,fix.satellites,
+  Serial.printf("LT STATUS version=%s target=%s uptime_ms=%lu ready=%d running=%d saving=%d sd=%d touch=%d lora=%d gps_chars=%lu gps_fix=%d sats=%u wifi=%lu ble=%lu lora_rx=%lu drops=%lu errors=%lu free_heap=%u mode=%s matches=%lu free_psram=%u quiet=%d min_internal=%u largest_internal=%u loop_stack=%u writer_stack=%lu ui_p95_ms=%lu ui_max_ms=%lu ui_samples=%lu upload=%d\n",
+    TUNNEL_VERSION,board::TARGET_ID,(unsigned long)millis(),ready,capturing.load(),stopping,storageReady(),hw::touchPresent(),loraReady(),gnssCharacters(),fix.valid,fix.satellites,
     (unsigned long)totals[0],(unsigned long)totals[1],(unsigned long)totals[2],
     (unsigned long)(counters.ingress_drops.load()+counters.log_drops.load()),
     (unsigned long)(counters.storage_errors.load()+counters.radio_errors.load()+counters.malformed.load()),ESP.getFreeHeap(),
-    model.recon?"recon":"wardriver",(unsigned long)reconTotal,ESP.getFreePsram(),quietActive);
+    model.recon?"recon":"wardriver",(unsigned long)reconTotal,ESP.getFreePsram(),quietActive,
+    heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT),
+    heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT),
+    unsigned(uxTaskGetStackHighWaterMark(nullptr)),(unsigned long)loggerStackMargin(),
+    (unsigned long)ui::inputLatencyP95Ms(),(unsigned long)ui::inputLatencyMaxMs(),(unsigned long)ui::inputLatencySamples(),uploaderBusy());
 }
 void shutdownCancelled(const char* reason) {
   shutdownPending=false; model.shutting_down=false;
@@ -276,6 +307,11 @@ void shutdownCancelled(const char* reason) {
 }
 void serviceShutdown() {
   if(!shutdownPending) return;
+  if(uploaderBusy()) {
+    uploaderCancel();
+    if(millis()-shutdownAt>30000) shutdownCancelled("Upload cancellation pending; stay awake");
+    return;
+  }
   const auto decision=shutdownDecision(capturing.load(),stopping,loggerIdle(),shutdownHadSession,
       storageReady(),shutdownErrors,counters.storage_errors.load(),shutdownDrops,counters.log_drops.load(),millis()-shutdownAt);
   if(decision==ShutdownDecision::Wait) return;
@@ -305,7 +341,7 @@ void serviceShutdown() {
   hw::enterDeepSleep();
 }
 void enterQuietTest(unsigned seconds=90) {
-  if(quietActive || capturing.load() || stopping || !loggerIdle()) {
+  if(quietActive || capturing.load() || stopping || !loggerIdle() || uploaderBusy()) {
     Serial.println("LT QUIET refused=1 reason=stop_and_save_first"); return;
   }
   // This independent timer also restores normal firmware if an upstream radio
@@ -390,39 +426,46 @@ void serialCommands() {
 void setup() {
   Serial.begin(115200); // No wait for USB: standalone boot is mandatory.
   busMutex=xSemaphoreCreateMutex(); actions=xQueueCreate(4,sizeof(Action));
-  captureQueueStorage=static_cast<uint8_t*>(heap_caps_malloc(48*sizeof(Observation),MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT));
-  if(captureQueueStorage) captureQueue=xQueueCreateStatic(48,sizeof(Observation),captureQueueStorage,&captureQueueControl);
+  captureQueueStorage=static_cast<uint8_t*>(allocatePayload(board::CAPTURE_RECORDS*sizeof(Observation)));
+  if(captureQueueStorage) captureQueue=xQueueCreateStatic(board::CAPTURE_RECORDS,sizeof(Observation),captureQueueStorage,&captureQueueControl);
   if(!busMutex || !actions || !captureQueue) { Serial.println("Allocation failure; halted"); while(true) delay(1000); }
-  const bool displayOK=hw::begin();
-  ui::begin(callback);
-  gnssBegin();
+  const bool displayOK=hw::begin(); hardwareReady=displayOK;
+  if(displayOK) { ui::begin(callback); gnssBegin(); }
   const bool memoryOK=ESP.getFlashChipSize()==board::FLASH_BYTES && ESP.getPsramSize()==board::PSRAM_BYTES;
-  if(mountStorage()) {
+  if(displayOK && mountStorage()) {
     if(!loadConfig() && configLoadState==ConfigLoadState::Invalid)
       strlcpy(model.notice,"Config invalid; choose a LoRa region",sizeof(model.notice));
   } else {
     loadRegionPreference();
     strlcpy(model.notice,"No SD. Setup > Retry SD",sizeof(model.notice));
   }
-  const bool writerOK=loggerBegin();
+  const bool writerOK=displayOK && loggerBegin();
   const bool scannerOK=writerOK && scannersBegin();
-  ready=writerOK && scannerOK && memoryOK && displayOK;
+  uploaderBegin();
+  ready=writerOK && scannerOK && memoryOK && displayOK && hw::inputReady();
   if(!writerOK) strlcpy(model.notice,"Writer allocation failed",sizeof(model.notice));
   else if(!scannerOK) strlcpy(model.notice,"Scanner initialization failed",sizeof(model.notice));
-  else if(!displayOK) strlcpy(model.notice,"Display initialization failed",sizeof(model.notice));
-  if(!memoryOK) strlcpy(model.notice,"Memory mismatch: verify V4-R8",sizeof(model.notice));
-  if(!hw::touchPresent()) strlcpy(model.notice,"Touch not found at 0x2E",sizeof(model.notice));
+  else if(!displayOK) strlcpy(model.notice,"Hardware/display initialization failed",sizeof(model.notice));
+  if(!memoryOK) strlcpy(model.notice,"Memory mismatch: verify target",sizeof(model.notice));
+  if(!hw::inputReady()) strlcpy(model.notice,"Input hardware unavailable",sizeof(model.notice));
+  if(!regionHardwareCompatible()) strlcpy(model.notice,"Region outside cap band; LoRa off",sizeof(model.notice));
+  else if(config.lora_enabled && !hw::loraFrontendPresent()) strlcpy(model.notice,"U214 cap RF switch unavailable",sizeof(model.notice));
   Serial.printf("LORA Tunnel %s | flash %u | PSRAM %u | touch %s | SD %s\n",TUNNEL_VERSION,ESP.getFlashChipSize(),ESP.getPsramSize(),hw::touchPresent()?"OK":"missing",storageReady()?"OK":"missing");
   Serial.printf("Init display=%d writer=%d scanner=%d ready=%d free_heap=%u\n",displayOK,writerOK,scannerOK,ready,ESP.getFreeHeap());
   serialStatus();
   // Diagnostics intentionally never print configuration contents or credentials.
 }
 void loop() {
+  if(!hardwareReady) { serialCommands(); delay(10); return; }
   if(quietActive) { gnssTick(); serialCommands(); delay(5); return; }
   gnssTick(); scannersTick(); drain(8); performActions(); serialCommands();
   if(quietActive) { delay(5); return; }
   // Always drain the debounce state, even when navigation is disabled in config.
   ui::navigation(hw::navigationButtons(),model);
+  if(board::HAS_KEYBOARD) {
+    input::KeyEvent key;
+    for(unsigned count=0;count<8 && hw::pollKeyboard(key);++count) ui::keyboard(key,model);
+  }
   if(stopping) {
     // Producer callbacks have stopped. Retry the stop marker until queue space exists.
     static bool endQueued=false;
@@ -433,13 +476,16 @@ void loop() {
     }
     if(endQueued && loggerIdle()) {
       stopping=false; endQueued=false;
-      strlcpy(model.notice,storageReady()?"Session closed. SD safe to remove.":"Storage error: inspect recovered log",sizeof(model.notice));
+      strlcpy(model.notice,storageReady()?"Session saved. Uploads run while idle.":"Storage error: inspect recovered log",sizeof(model.notice));
     }
   }
   static uint32_t lastBattery=0;
   if(millis()-lastBattery>5000) { model.battery=hw::batteryVolts(); lastBattery=millis(); }
+  if(startAfterUpload && !uploaderBusy()) { startAfterUpload=false; requestSession(); }
+  uploaderTick(ready && !capturing.load() && !stopping && loggerIdle() && !shutdownPending && !startAfterUpload,ui::allowsBackgroundUpload());
   refreshModel();
-  if(xSemaphoreTake(busMutex,0)==pdTRUE) { ui::tick(model); xSemaphoreGive(busMutex); }
+  if(!board::DISPLAY_SHARED_WITH_SD) ui::tick(model);
+  else if(xSemaphoreTake(busMutex,0)==pdTRUE) { ui::tick(model); xSemaphoreGive(busMutex); }
   else ++counters.ui_skips;
   serviceShutdown();
   delay(5);

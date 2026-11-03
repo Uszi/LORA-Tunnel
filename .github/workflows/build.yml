@@ -17,7 +17,9 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install pinned build frontend
-        run: python -m pip install platformio==6.2.0 -r tools/site-requirements.txt
+        run: python -m pip install platformio==6.2.0 -r tools/site-requirements.txt -r tools/test-requirements.txt
+      - name: Validate schemas and shipped examples
+        run: python tools/check_schemas.py
       - name: Exporter and serial helper unit tests
         run: python -m unittest discover -s tests -p 'test_*.py' -v
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
@@ -27,8 +29,16 @@ jobs:
         run: node --test tests/test_web_app.cjs
       - name: Native parser and state tests
         run: python -m platformio test -e native
+      - name: Actual uploader lifecycle with offline transport and SD fixtures
+        run: python tools/check_uploader.py
       - name: Compile the exact V4-R8 Expansion V2 target
         run: python -m platformio run -e heltec-v4-r8-tft
+      - name: Compile Cardputer ADV with Cap LoRa-1262
+        run: python -m platformio run -e cardputer-adv-lora1262
+      - name: Cardputer keyboard mapping against pinned upstream headers
+        run: python tools/check_cardputer_keyboard.py
+      - name: Validate Cardputer factory and Launcher application
+        run: python tools/package_cardputer.py --build .pio/build/cardputer-adv-lora1262 --output dist/cardputer-check --version 0.4.0-beta.1
       - name: Check public source package inventory
         run: python tools/package_source.py dist/source-check.zip
 

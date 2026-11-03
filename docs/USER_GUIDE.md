@@ -1,6 +1,8 @@
 # LORA Tunnel beta user guide
 
-This guide describes the planned **0.3.0-beta.1** workflow for the Heltec Expansion Kit V2 / V4-R8 with **863–928 MHz radio hardware**. The user reported working GPS, followed by a read-only physical check of 0.2.3-dev confirming a fresh 3D fix with five satellites. Acceptance of the new build, repeatable acquisition and geotagged SD/export validation are separate checks; see [VALIDATION.md](VALIDATION.md). Uploads and full mesh payload decoding remain unfinished.
+For Cardputer ADV + U214 0.4.0-beta.1 controls and installation, use [CARDPUTER_ADV.md](CARDPUTER_ADV.md). The hardware/UI descriptions below apply to Heltec. The 0.4 source also includes the [idle-only uploader](UPLOADS.md); the published Heltec 0.3.0-beta.1 image is unchanged.
+
+This guide describes the **Heltec 0.3.0-beta.1** workflow for the Heltec Expansion Kit V2 / V4-R8 with **863–928 MHz radio hardware**. The user reported working GPS, followed by a read-only physical check of 0.2.3-dev confirming a fresh 3D fix with five satellites. Acceptance of the new build, repeatable acquisition and geotagged SD/export validation are separate checks; see [VALIDATION.md](VALIDATION.md). Uploads and full mesh payload decoding remain unfinished.
 
 ## Prepare the device
 
@@ -84,7 +86,7 @@ Physical-button electrical/function acceptance remains pending. Set `ui.buttons_
 
 **Settings → Connection Keys** offers WiGLE API name/token, WDGWars token and Wi-Fi SSID/password fields. Tapping one opens the keyboard only when needed. Stop capture before saving. Entries are bounded to 127 bytes; Save writes a checked temporary configuration and retains a previous valid backup. Existing secret values are not displayed as a prefilled entry.
 
-**This beta stores credentials but does not connect or upload.** Credentials are plaintext on the removable SD card; keep real `config.json`, backups and session logs out of public source archives. Leave credential fields empty if not needed.
+**Published Heltec 0.3.0-beta.1 stores credentials but does not connect or upload.** In 0.4 source, service credentials plus explicit upload settings enable the separate idle-only uploader; see [Uploads](UPLOADS.md). Credentials are plaintext on the removable SD card; keep real `config.json`, backups and session logs out of public source archives. Leave credential fields empty if not needed.
 
 ## Shutdown and wake
 

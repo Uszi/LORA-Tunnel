@@ -11,6 +11,7 @@ namespace tunnel {
 struct RadioSettings {
   bool enabled = false;
   bool selection_complete = false;
+  bool hardware_compatible = true;
   double frequency = 0, bandwidth = 250;
   std::int64_t sf = 11, cr = 5, preamble = 16;
   char region[12] = "UNSET";
@@ -75,7 +76,7 @@ inline bool parseConfigRadio(JsonVariantConst root, RadioSettings& result) {
   } else if(legacy) {
     if(parsed.frequency<902 || parsed.frequency>928) return false;
   } else {
-    if(parsed.enabled && !lora_profiles::selectable(*profile)) return false;
+    if(parsed.enabled && !profile->high_band_compatible) return false;
     const double halfWidth=parsed.bandwidth/2000.0;
     if(parsed.frequency-halfWidth<profile->minimum_mhz-0.0001 ||
        parsed.frequency+halfWidth>profile->maximum_mhz+0.0001) return false;
@@ -84,6 +85,14 @@ inline bool parseConfigRadio(JsonVariantConst root, RadioSettings& result) {
   // UNSET needs an explicit marker to distinguish Skip from a blank example.
   parsed.selection_complete=profile ? lora_profiles::selectable(*profile) :
       (radio["selection_complete"] | false);
+#if defined(LORA_TUNNEL_CARDPUTER_ADV)
+  // A valid Heltec SD config is not corrupt merely because this cap cannot
+  // receive its frequency. Preserve its credentials/other settings and report
+  // the incompatibility rather than selecting a different backup/NVS region.
+  parsed.hardware_compatible=!profile || lora_profiles::fitsHardware(
+      parsed.frequency,parsed.bandwidth,lora_profiles::hardwareMinimum,lora_profiles::hardwareMaximum);
+  if(!parsed.hardware_compatible) { parsed.enabled=false; parsed.selection_complete=false; }
+#endif
   result = parsed;
   return true;
 }
@@ -112,6 +121,15 @@ inline bool setConfigDocumentRegion(JsonVariant root,const char* code) {
   radio["preamble_symbols"]=profile ? profile->preamble : 16;
   radio["lna"]=false;
   return true;
+}
+
+inline bool setConfigDocumentUpload(JsonVariant root,int service,bool enabled) {
+  const char* names[]={"wigle","wardrift","wdgwars"};
+  if(!root.is<JsonObject>() || service<0 || service>2) return false;
+  auto uploads=root["uploads"];
+  if(!uploads.isNull() && !uploads.is<JsonObject>()) return false;
+  uploads[names[service]]=enabled;
+  return uploads[names[service]].is<bool>() && uploads[names[service]].as<bool>()==enabled;
 }
 
 }  // namespace tunnel

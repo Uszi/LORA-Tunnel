@@ -1,5 +1,6 @@
 #include "config.h"
 #include "config_document.h"
+#include "credential_validation.h"
 #include <ArduinoJson.h>
 #include <SD.h>
 #include <Preferences.h>
@@ -19,8 +20,9 @@ constexpr char tempPath[] = "/lora-tunnel/config.tmp";
 StaticJsonDocument<16384> document;
 RadioSettings radioSettings;
 bool selectionMade=false;
+bool hardwareCompatible=true;
 constexpr char preferenceNamespace[]="lt-region";
-constexpr const char* credentialKeys[]={"wigle_api_name","wigle_api_token","wdgwars_token","wifi_ssid","wifi_password"};
+constexpr const char* credentialKeys[]={"wigle_api_name","wigle_api_token","wdgwars_token","wifi_ssid","wifi_password","wardrift_api_token"};
 bool read(const char* filename) {
   document.clear();
   File f = SD.open(filename, FILE_READ);
@@ -32,6 +34,17 @@ bool read(const char* filename) {
 void copy(char* target, size_t size, JsonVariantConst v) {
   if (v.is<const char*>()) strlcpy(target, v.as<const char*>(), size);
 }
+bool copyCredential(char* target, int field, JsonVariantConst value) {
+  // Never turn malformed imported credentials into a different, truncated key
+  // or SSID. Keep the source document intact so it can be corrected on SD.
+  target[0]=0;
+  if(!value.is<const char*>()) return false;
+  const JsonString text=value.as<JsonString>();
+  if(text.size()!=strlen(text.c_str()) || text.size()>=128 ||
+      !validCredential(field,text.c_str())) return false;
+  memcpy(target,text.c_str(),text.size()+1);
+  return true;
+}
 uint32_t boundedSetting(JsonVariantConst value, uint32_t fallback, uint32_t minimum, uint32_t maximum) {
   if (!value.is<uint32_t>()) return fallback;
   const uint32_t parsed=value.as<uint32_t>();
@@ -40,7 +53,7 @@ uint32_t boundedSetting(JsonVariantConst value, uint32_t fallback, uint32_t mini
 void applyRegion(const char* code) {
   const auto* profile=lora_profiles::find(code);
   strlcpy(config.region,code,sizeof(config.region));
-  selectionMade=true;
+  selectionMade=true; hardwareCompatible=true;
   config.lora_enabled=profile!=nullptr;
   config.lna=false;
   config.frequency=profile ? profile->frequency_mhz : 0;
@@ -81,10 +94,13 @@ void seedDocument() {
   JsonArray categories=document["recon"].createNestedArray("categories");
   for(unsigned category=1;category<=14;++category)
     if(config.recon_categories & (uint16_t(1u)<<category))categories.add(reconCategoryKey(static_cast<recon::Category>(category)));
+  document["uploads"]["wigle"]=config.auto_wigle;
+  document["uploads"]["wardrift"]=config.auto_wardrift;
+  document["uploads"]["wdgwars"]=config.auto_wdgwars;
   document["schedule"]["wifi_dwell_ms"]=config.wifi_dwell_ms;
   document["schedule"]["ble_window_ms"]=config.ble_window_ms;
-  const char* values[]={config.wigle_name,config.wigle_token,config.wdgwars_token,config.wifi_name,config.wifi_password};
-  for(size_t i=0;i<5;++i) document["credentials"][credentialKeys[i]]=values[i];
+  const char* values[]={config.wigle_name,config.wigle_token,config.wdgwars_token,config.wifi_name,config.wifi_password,config.wardrift_token};
+  for(size_t i=0;i<6;++i) document["credentials"][credentialKeys[i]]=values[i];
 }
 bool prepareSave() {
   SD.mkdir("/lora-tunnel");
@@ -92,7 +108,8 @@ bool prepareSave() {
   if(!mainValid && !read(backupPath)) seedDocument();
   return mainValid;
 }
-bool commitPrepared(bool mainValid,const char* key,const char* value,const char* region) {
+bool commitPrepared(bool mainValid,const char* key,const char* value,const char* region,
+                    const char* upload=nullptr,bool uploadEnabled=false) {
   const auto fail=[]() {
     document.clear();
     if(SD.exists(tempPath)) SD.remove(tempPath);
@@ -112,6 +129,8 @@ bool commitPrepared(bool mainValid,const char* key,const char* value,const char*
     if(!saved || strcmp(saved,value)) return fail();
   }
   if(region && (strcmp(radioSettings.region,region) || !radioSettings.selection_complete)) return fail();
+  if(upload && (!document["uploads"][upload].is<bool>() ||
+      document["uploads"][upload].as<bool>()!=uploadEnabled)) return fail();
   // Rotate only a semantically valid original. Recovery never destroys the
   // usable backup merely because the primary was parseable but invalid.
   if(mainValid) {
@@ -128,6 +147,7 @@ bool regionConfigured() {
   return profile && lora_profiles::selectable(*profile);
 }
 bool regionSelectionMade() { return selectionMade; }
+bool regionHardwareCompatible() { return hardwareCompatible; }
 bool loadRegionPreference() {
   if(configLoadState==ConfigLoadState::Primary || configLoadState==ConfigLoadState::Backup ||
      configLoadState==ConfigLoadState::Invalid) return false;
@@ -137,7 +157,11 @@ bool loadRegionPreference() {
   const bool found=prefs.getString("code",code,sizeof(code))>0;
   prefs.end();
   const auto* profile=lora_profiles::find(code);
-  if(!found || (!lora_profiles::isUnset(code) && (!profile || !lora_profiles::selectable(*profile)))) return false;
+  if(!found) return false;
+  if(!lora_profiles::isUnset(code) && (!profile || !lora_profiles::selectable(*profile))) {
+    hardwareCompatible=false;
+    return false;
+  }
   applyRegion(code);
   configLoadState=ConfigLoadState::Nvs;
   return true;
@@ -145,7 +169,7 @@ bool loadRegionPreference() {
 bool loadConfig() {
   // An explicit usable SD file wins. Only absent files may use the saved NVS region.
   config = Config{};
-  selectionMade=false;
+  selectionMade=false; hardwareCompatible=true;
   configLoadState=ConfigLoadState::Missing;
   const bool configPresent = SD.exists(path) || SD.exists(backupPath);
   const bool primary=read(path);
@@ -155,8 +179,12 @@ bool loadConfig() {
   if (loaded) {
     configLoadState=primary ? ConfigLoadState::Primary : ConfigLoadState::Backup;
     selectionMade=radioSettings.selection_complete;
+    hardwareCompatible=radioSettings.hardware_compatible;
     auto radio = document["lora"];
     config.lna = radio["lna"] | false;
+#if defined(LORA_TUNNEL_CARDPUTER_ADV)
+    config.lna=false; // U214 has no selectable Heltec FEM/LNA.
+#endif
     strlcpy(config.region,radioSettings.region,sizeof(config.region));
     if(regionConfigured()) snprintf(config.profile,sizeof(config.profile),"%s LongFast",config.region);
     copy(config.profile, sizeof(config.profile), radio["name"]);
@@ -176,11 +204,17 @@ bool loadConfig() {
     config.wifi_dwell_ms = boundedSetting(document["schedule"]["wifi_dwell_ms"],120,60,500);
     config.ble_window_ms = boundedSetting(document["schedule"]["ble_window_ms"],2500,500,10000);
     auto credentials = document["credentials"];
-    copy(config.wigle_name, sizeof(config.wigle_name), credentials["wigle_api_name"]);
-    copy(config.wigle_token, sizeof(config.wigle_token), credentials["wigle_api_token"]);
-    copy(config.wdgwars_token, sizeof(config.wdgwars_token), credentials["wdgwars_token"]);
-    copy(config.wifi_name, sizeof(config.wifi_name), credentials["wifi_ssid"]);
-    copy(config.wifi_password, sizeof(config.wifi_password), credentials["wifi_password"]);
+    char* credentialFields[]={config.wigle_name,config.wigle_token,config.wdgwars_token,
+                             config.wifi_name,config.wifi_password,config.wardrift_token};
+    for(int field=0;field<6;++field) {
+      const bool valid=copyCredential(credentialFields[field],field,credentials[credentialKeys[field]]);
+      // An explicitly invalid imported password must not become an open-network
+      // connection attempt. An absent password retains legacy open-Wi-Fi support.
+      if(field==4 && !valid && credentials.containsKey(credentialKeys[field])) config.wifi_name[0]=0;
+    }
+    config.auto_wigle=document["uploads"]["wigle"].is<bool>() && document["uploads"]["wigle"].as<bool>();
+    config.auto_wardrift=document["uploads"]["wardrift"].is<bool>() && document["uploads"]["wardrift"].as<bool>();
+    config.auto_wdgwars=document["uploads"]["wdgwars"].is<bool>() && document["uploads"]["wdgwars"].as<bool>();
   }
   document.clear();
   File f = SD.open("/lora-tunnel/detection_rules.json", FILE_READ);
@@ -198,13 +232,23 @@ bool loadConfig() {
   return loaded;
 }
 bool saveCredential(int field, const char* value) {
-  if (field < 0 || field > 4 || !value || strlen(value) > 127) return false;
+  if (!validCredential(field,value)) return false;
   const bool mainValid=prepareSave();
   document["credentials"][credentialKeys[field]]=value;
   if(!commitPrepared(mainValid,credentialKeys[field],value,nullptr)) return false;
-  char* fields[] = {config.wigle_name,config.wigle_token,config.wdgwars_token,config.wifi_name,config.wifi_password};
+  char* fields[] = {config.wigle_name,config.wigle_token,config.wdgwars_token,config.wifi_name,config.wifi_password,config.wardrift_token};
   strlcpy(fields[field],value,128);
   configLoadState=ConfigLoadState::Primary;
+  return true;
+}
+bool saveAutoUpload(int service,bool enabled) {
+  const char* names[]={"wigle","wardrift","wdgwars"};
+  if(service<0 || service>2) return false;
+  const bool mainValid=prepareSave();
+  if(!setConfigDocumentUpload(document.as<JsonVariant>(),service,enabled)) { document.clear(); return false; }
+  if(!commitPrepared(mainValid,nullptr,nullptr,nullptr,names[service],enabled)) return false;
+  bool* values[]={&config.auto_wigle,&config.auto_wardrift,&config.auto_wdgwars};
+  *values[service]=enabled;
   return true;
 }
 RegionSaveResult saveLoRaRegion(const char* code,bool sdMounted) {

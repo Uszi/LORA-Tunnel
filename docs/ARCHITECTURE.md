@@ -1,16 +1,14 @@
 # LORA Tunnel architecture and milestones
 
-This describes the source being prepared for **0.3.0-beta.1**. Exact build,
-installation and physical results are versioned in [VALIDATION.md](VALIDATION.md),
-not inferred from previous passing totals. Earlier benches exercised separate
-Wardriver/Recon sessions and save ordering; user confirmation covered the views
-and flicker fix. A later read-only 0.2.3-dev check physically verified a fresh
-3D GPS fix during capture. First-run region selection, software shutdown/wake
-and the new source still require their own acceptance. The version is
-centralized in `include/version.h`.
+This describes **0.4.0-beta.1 source**, including the Cardputer ADV + U214
+target and shared idle-only uploader. The published Heltec 0.3.0-beta.1 firmware
+remains unchanged. Historical Heltec build/device evidence is versioned in
+[VALIDATION.md](VALIDATION.md); Cardputer physical and live-service acceptance
+is tracked separately in [CARDPUTER_RELEASE.md](CARDPUTER_RELEASE.md).
+The version is centralized in `include/version.h`.
 
 The application uses pinned PlatformIO/pioarduino, Arduino-ESP32 3.3.12,
-LovyanGFX 1.2.24, NimBLE 2.5.2, RadioLib 7.8.1, TinyGPSPlus 1.1.0 and
+LovyanGFX 1.2.24 on Heltec, M5Cardputer/M5Unified/M5GFX on Cardputer, NimBLE 2.5.2, RadioLib 7.8.1, TinyGPSPlus 1.1.0 and
 ArduinoJson 6.21.5. The local `lib/recon` adapter imports the owner's
 MIT-licensed Dragon Detector subset, retaining inherited notices; adjacent
 `lib/opendroneid` contains the Apache-2.0 decoder pinned to
@@ -32,12 +30,13 @@ flowchart LR
   LoRa[Wardriver only / fixed SX1262 receive profile] --> Q
   Fix --> Q
   Q --> Main[Main loop / classify and summarize]
-  Main --> Cache[64 bounded display summaries]
+  Main --> Cache[Board-sized bounded display summaries]
   Cache --> UI[Home / Wardriver / matched Recon / Settings]
-  Main --> W[32-record writer queue]
+  Main --> W[Board-sized writer queue]
   W --> Buffer[8 KiB SD write buffer]
   Buffer --> SD[Versioned JSONL sessions]
   SD --> Export[Offline WiGLE CSV / mesh candidate JSON]
+  SD --> Upload[Stopped and saved only / per-service TLS uploader]
 ```
 
 Wardriver observes 2.4 GHz APs, BLE advertisements and one LoRa profile.
@@ -63,15 +62,14 @@ boundaries and per-category qualifications.
 
 ## Hardware ownership and scheduling
 
-Pins remain in `board_config.h`. TFT and SD share SPI3 under one mutex; SX1262
-uses SPI2. The UI skips display work when the writer owns the bus. Touch polling
+Pins and allocation limits remain in `board_config.h`. On Heltec, TFT and SD share SPI3 under one mutex; SX1262 uses SPI2. The UI skips display work when the writer owns the bus. Touch polling
 still occurs inside the UI path and can be delayed by SD contention. Physical
 button polling and `ui::navigation()` require no SPI; actions are queued for the
-main loop rather than performing SD/radio work inside UI callbacks.
+main loop rather than performing SD/radio work inside UI callbacks. On Cardputer, M5GFX owns the separate display SPI bus while SD and U214 SX1262 share the peripheral SPI bus and mutex. ADV input uses the pinned M5Cardputer TCA8418 implementation; GNSS and cap power/RF-switch handling are board-specific.
 
 The SX1262 interrupt only sets a flag. Packet read/rearm takes priority over
 ordinary result processing. Fresh installations leave LoRa UNSET and disabled.
-The first-run/Settings picker selects one of 18 high-band Meshtastic LongFast
+The first-run/Settings picker selects a hardware-compatible high-band Meshtastic LongFast
 profiles from `lora_profiles.h`, with BW250, SF11, CR4/5, preamble 16, sync 0x2B
 and LNA bypass. US is 906.875 MHz; EU_868 is 869.525 MHz. Lower-band hardware
 profiles are listed but unavailable. A profile is not enabled until deliberately
@@ -105,15 +103,9 @@ Observation records contain no dynamic strings or pointers. Raw storage is
 bounded to 1,024 bytes per record; the Recon API accepts at most 1,024 Wi-Fi bytes
 or 512 BLE bytes, and LoRa retains at most 255. BLE retains its ADV/SCAN_RSP
 boundary when supplied by the scanner. Truncation/unsupported framing must not
-produce a claim that a complete packet was decoded. The 48-record ingress
-queue reserves its final eight slots from data frames for management traffic;
-deliberate capacity drops increment the visible ingress-drop counter. Two
-fixed PSRAM callback scratch records are allocated at initialization.
-The SD queue has 32 records with its payload
-storage in PSRAM; queue control/task state remain internal. No large allocation
-is permitted in radio callbacks.
+produce a claim that a complete packet was decoded. Heltec uses 48 ingress records with eight reserved management slots and 32 writer records in PSRAM. Cardputer uses 12 ingress records with two reserved management slots and eight writer records in internal RAM. Both allocate fixed callback scratch records at initialization. Deliberate capacity drops increment ingress counters; queue control/task state stay internal. No large allocation is permitted in radio callbacks.
 
-The main loop maintains 64 least-recently-seen summaries. Eviction removes only
+The main loop maintains 64 least-recently-seen summaries on Heltec and 32 on Cardputer. Eviction removes only
 the display summary, not observations already logged. Public and randomized
 BLE address types remain distinct. A LoRa candidate sender is prefixed `?`;
 unknown packets use a packet fingerprint, not an invented node identity.
@@ -153,7 +145,7 @@ establishes long-duration GPS reliability or SD-file geotag correctness.
 
 ## UI, controls and SD configuration
 
-The retained 0.1.2 presentation path uses one 153,600-byte PSRAM framebuffer,
+The Heltec presentation path uses one 153,600-byte PSRAM framebuffer,
 attached to the LovyanGFX sprite without a second full-frame copy. Drawing is
 offscreen, followed by one synchronous transfer. Status refreshes at 2 Hz unless
 input marks the screen dirty; keyboard/evidence pages are otherwise static.
@@ -194,6 +186,8 @@ frequency/modem values until another region is selected. The original VTS logo
 is decoded into a small cached sprite once, then drawn in the header without
 repeated PNG decoding. See [REGIONS.md](REGIONS.md) and [UI_GUIDE.md](UI_GUIDE.md).
 
+Cardputer renders a compact 240 × 135 landscape interface in an 8-bit internal-RAM framebuffer. Physical keyboard events drive the same application actions, with shortcuts and native text entry. Its `ui_p95_ms`/`ui_max_ms` counters measure keyboard dispatch to presentation; they exclude TCA FIFO time and main-loop work before polling, so physical input latency still requires measurement.
+
 ## Stages and acceptance gates
 
 | Stage | Source capability | Remaining acceptance/work |
@@ -202,16 +196,14 @@ repeated PNG decoding. See [REGIONS.md](REGIONS.md) and [UI_GUIDE.md](UI_GUIDE.m
 |2 Wardriver | Passive Wi-Fi/BLE schedule, fixed queues, JSONL and separate summaries | Controlled-source coverage, timing, dense environments, long drives |
 |3 LoRa | Region-selected receive-only profile, raw metadata and candidate headers | First-run/persistence checks, known transmitter, LNA comparison, protocol confirmation and payload decode |
 |4 Recon/UI | Distinct pages, bounded signatures/Remote ID, SD rules, evidence grades, optional buttons and alerts | Real category/transport comparisons, false positives, buttons, full touch coverage and UI/buzzer latency |
-|5 Export/upload | Desktop WiGLE CSV and strictly gated unsigned mesh candidate JSON | Real export acceptance, on-device export, TLS uploader, explicit manual/opt-in automatic upload state |
+|5 Export/upload | Desktop exports plus 0.4 completed-session CSV staging, per-service TLS uploader and persistent receipts | Physical idle/capture handoff, real WiGLE/Wardrift/WDGWars acceptance, outage/reboot behavior |
 
 USB status/start/stop is an optional bounded bench interface; startup does not
 wait for it. Diagnostics avoid observed names, coordinates and credentials.
 The serial helper verifies recent command state and fails on missing status or
 restart/crash diagnostics, but cannot certify radio captures or SD content.
 
-Future upload policy remains unimplemented: configured networks, completed
-sessions, validated TLS, no credential logging, independent destination
-checkpoints and bounded retries. Native logs must survive failed uploads.
+The 0.4 uploader uses only configured home Wi-Fi, completed Wardriver sessions, validated TLS, independent destination/chunk checkpoints and bounded retries. Each service is explicitly enabled or manually requested. It runs only after capture and saving stop; a new Start cancels it and waits for teardown before scanner ownership resumes. Auth failures and uncertain receipts pause automatic resubmission. Native logs survive successful and failed uploads. [UPLOADS.md](UPLOADS.md) describes receipt contracts and software-test versus live-service evidence.
 After reliable fixed-profile reception, slow profile hopping can account for
 airtime and traffic density. MeshCore and optional known-key Meshtastic payload
 decoding remain later work; exported fields must never be fabricated.

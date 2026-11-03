@@ -13,7 +13,8 @@ STATUS_FIELDS = (
     "version", "uptime_ms", "ready", "running", "saving", "sd", "touch", "lora",
     "gps_chars", "gps_fix", "sats", "wifi", "ble", "lora_rx", "drops", "errors", "free_heap",
 )
-BOOLEAN_FIELDS = {"ready", "running", "saving", "sd", "touch", "lora", "gps_fix"}
+OPTIONAL_STATUS_FIELDS = ("target", "min_internal", "largest_internal", "loop_stack", "writer_stack", "ui_p95_ms", "ui_max_ms", "ui_samples", "upload")
+BOOLEAN_FIELDS = {"upload","ready", "running", "saving", "sd", "touch", "lora", "gps_fix"}
 DIAGNOSTICS = (
     ("panic", re.compile(r"guru meditation|\bpanic\b", re.IGNORECASE)),
     ("brownout", re.compile(r"brownout", re.IGNORECASE)),
@@ -31,12 +32,13 @@ def parse_status(line):
         if "=" not in token:
             return None
         key, value = token.split("=", 1)
-        if key not in STATUS_FIELDS:
+        if key not in STATUS_FIELDS + OPTIONAL_STATUS_FIELDS:
             continue  # Never echo unknown future fields that might be private.
         if key in values:
             return None
-        if key == "version":
-            if not re.fullmatch(r"[0-9][A-Za-z0-9._+-]{0,47}", value):
+        if key in ("version", "target"):
+            pattern = r"[0-9][A-Za-z0-9._+-]{0,47}" if key == "version" else r"[a-z0-9][a-z0-9-]{0,47}"
+            if not re.fullmatch(pattern, value):
                 return None
             values[key] = value
         else:
@@ -127,7 +129,7 @@ def run_bench(connection, command, seconds, *, clock=time.monotonic,
                     latest = status
                     latest_at = clock()
                     accepted += 1
-                    emit("LT STATUS " + " ".join(f"{key}={status[key]}" for key in STATUS_FIELDS))
+                    emit("LT STATUS " + " ".join(f"{key}={status[key]}" for key in STATUS_FIELDS + OPTIONAL_STATUS_FIELDS if key in status))
                 else:
                     omitted += 1
         if discarding:

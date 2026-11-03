@@ -1,5 +1,7 @@
 # Validation record — 2026-11-01
 
+The records below are versioned Heltec evidence. New Cardputer 0.4.0-beta.1 hardware, browser/Launcher installation and live WiGLE/Wardrift/WDGWars acceptance remain pending; see [CARDPUTER_RELEASE.md](CARDPUTER_RELEASE.md) and [UPLOADS.md](UPLOADS.md). Host/fixture tests do not establish those physical or live-service results.
+
 Latest installed beta candidate: **LORA Tunnel 0.3.0-beta.1**. Build and application-only installation have passed; public release/deployment remains pending at this checkpoint. The preceding public beta is **0.2.2-beta.1**. The local target is `heltec_v4_r8_tft`, Heltec Expansion V2 / V4-R8, 16 MB QIO flash and 8 MB OPI PSRAM. User confirmed the kit family, 915 MHz variant and United States location on 2026-11-01; the new source supports deliberate high-band region selection rather than a global US default. The exact PCB silkscreen and fitted RF front-end still require physical verification.
 
 ## Installed 0.3.0-beta.1: region setup, Settings power and fresh GPS fix

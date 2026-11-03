@@ -1,8 +1,17 @@
 # LORA Tunnel web installer
 
-**Beta firmware: 0.3.0-beta.1, Heltec Expansion Kit V2 / V4-R8, 863–928 MHz hardware.** Fresh installations leave LoRa off until a region is selected. A fresh GPS fix and a short stopped/closed capture were physically verified on 0.3.0-beta.1. Region-picker and software shutdown/wake acceptance remain pending. Automatic uploads and full mesh payload decoding remain unfinished. Read the [user guide](USER_GUIDE.md) and [validation record](VALIDATION.md) before installation.
+The Cardputer ADV + Cap LoRa-1262 target is prepared alongside the preserved
+Heltec 0.3.0-beta.1 installer. See [Cardputer installation and Launcher files](CARDPUTER_ADV.md)
+and [publication/acceptance status](CARDPUTER_RELEASE.md). The hardware selector
+uses a separate manifest for each board because both identify as ESP32-S3.
+Changing hardware clears the confirmation. Pending Cardputer acceptance is
+available only in an explicitly staged localhost preview; public installation
+waits for physical validation. The Heltec-specific notes below remain scoped
+to that existing board and release.
 
-Open the [LORA Tunnel web installer](https://valleytech-lora-tunnel.pages.dev/) or the [Valleytech Solutions project page](https://valleytechsolutions.tech/pages/lora-tunnel). Source is hosted on [GitHub](https://github.com/valleytechsolutions/LORA-Tunnel); a Gitea mirror is pending publication. Source builds remain available through the [README](../README.md#build-and-flash-from-source). Physical flashing through the browser remains unverified; successful command-line installation is recorded separately.
+**Beta firmware: 0.3.0-beta.1, Heltec Expansion Kit V2 / V4-R8, 863–928 MHz hardware.** Fresh installations leave LoRa off until a region is selected. A fresh GPS fix and a short stopped/closed capture were physically verified on 0.3.0-beta.1. Region saving, software shutdown/Cancel and USER wake have scoped user confirmation; independent persistence, sustained captures and browser flashing remain separate. This published 0.3 image has no uploader or full mesh payload decoder. Read the [user guide](USER_GUIDE.md) and [validation record](VALIDATION.md) before installation.
+
+Open the [LORA Tunnel web installer](https://valleytech-lora-tunnel.pages.dev/) or the [Valleytech Solutions project page](https://valleytechsolutions.tech/pages/lora-tunnel). Source is hosted on [GitHub](https://github.com/valleytechsolutions/LORA-Tunnel); the [Gitea packaged distribution](https://git.churchofmalware.org/Valleytech/LORA-Tunnel) contains release artifacts and complete source ZIPs. Source builds remain available through the [README](../README.md#build-and-flash-from-source). Physical flashing through the browser remains unverified; successful command-line installation is recorded separately.
 
 ## Install
 

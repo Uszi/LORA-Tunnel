@@ -3,8 +3,8 @@
 namespace tunnel {
 bool mountStorage();
 bool storageReady();
-// Returns false if the 32-record PSRAM queue or internal writer task cannot be
-// allocated; no fallback consumes the enlarged queue from internal RAM.
+uint32_t loggerStackMargin();
+// Returns false if the board-profile queue or writer task cannot be allocated.
 bool loggerBegin();
 bool logObservation(const Observation& observation);
 bool loggerIdle();

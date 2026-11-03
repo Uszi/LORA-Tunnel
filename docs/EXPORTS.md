@@ -1,5 +1,7 @@
 # Offline exports and upload contract research
 
+This page covers the standalone offline exporter and the original mesh-candidate research. The 0.4 firmware's separate [idle-only uploader](UPLOADS.md) sends eligible Wi-Fi/BLE CSV to WiGLE, Wardrift or WDGWars. WDGWars CSV upload is distinct from the mesh-candidate JSON described here; full mesh payload decoding remains incomplete.
+
 Checked on 2026-11-01. These tools produce local files and make no network
 requests. Host tests establish formatting and rejection behavior; they do not
 establish WiGLE or WDGWars ingestion acceptance, a working device capture, or
@@ -153,9 +155,10 @@ WiGLE's current client defines
 `https://api.wigle.net/api/v2/file/upload` in
 [UrlConfig.java](https://github.com/wiglenet/wigle-wifi-wardriving/blob/c7b87114f9c4d8a269673fedacc675c5b3cf94be/wiglewifiwardriving/src/main/java/net/wigle/wigleandroid/util/UrlConfig.java)
 and [AbstractApiRequest.java](https://github.com/wiglenet/wigle-wifi-wardriving/blob/c7b87114f9c4d8a269673fedacc675c5b3cf94be/wiglewifiwardriving/src/main/java/net/wigle/wigleandroid/background/AbstractApiRequest.java)
-uses HTTP Basic authentication over `API-name:API-token`. A future uploader
-should stream closed CSV files over verified TLS, keep a per-service result
-journal, preserve source logs, and honor user-controlled donation/sharing options.
+uses HTTP Basic authentication over `API-name:API-token`. The 0.4 uploader described in [UPLOADS.md](UPLOADS.md)
+streams eligible CSV over verified TLS, keeps independent service checkpoints,
+and preserves source logs. Its hardware and live-service acceptance remain
+pending. There is no donation/sharing preference control in this beta.
 
 WDGWars JSON signing uses the API key's UTF-8 text as the HMAC key, not its
 hex-decoded bytes. Compact JSON bytes become Base64; an eight-byte random nonce
@@ -168,14 +171,17 @@ branch at `79cc6bcba1db6679baee1dab2b0c1ad5010e6363` contains WiGLE and WDGWars
 upload routines and imports `/wigle_api_name.txt`, `/wigle_api_token.txt`, and
 `/wdg_key.txt` from SD in
 [WiFiScan.cpp](https://github.com/justcallmekoko/ESP32Marauder/blob/79cc6bcba1db6679baee1dab2b0c1ad5010e6363/esp32_marauder/WiFiScan.cpp).
-It also contains touch keyboard code. This inspection did not verify the entire
-manual credential-entry flow. LORA Tunnel's own keyboard/configuration flow must
-be implemented and tested. That upstream import path prints credentials to the
-serial log; LORA Tunnel must not copy that behavior.
+It also contains touch keyboard code. That inspection did not verify the entire
+upstream manual credential-entry flow. LORA Tunnel 0.4 implements its own
+Cardputer physical-keyboard credential flow and existing SD configuration. Its
+host checks are separate from physical acceptance. The upstream import path
+prints credentials to the serial log; LORA Tunnel does not print those values.
 
-Keep configurable auto-upload off until enabled by the user. Upload on known
-Wi-Fi after capture stops, pause scans deliberately, use bounded batches/retries,
-back off on 429, and leave partial failures pending. Credentials belong in the
+Automatic uploads remain off until each service is enabled by the user. The
+0.4 worker connects to configured home Wi-Fi only after capture stops and saving
+finishes; it never pauses a capture to upload. It bounds chunks and retries,
+keeps separate acceptance states, and preserves ambiguous receipts for explicit
+manual handling. See [UPLOADS.md](UPLOADS.md) for the implemented retry rules. Credentials belong in the
 SD configuration requested by the user, masked in UI and excluded from all
 logs, example files, exports, crash output, and source control. No credentials
 are needed to run these offline tools.

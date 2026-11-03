@@ -7,6 +7,7 @@ from collections import Counter
 import csv
 from datetime import datetime, timezone
 import json
+from itertools import chain
 import math
 from pathlib import Path
 import re
@@ -179,11 +180,18 @@ def wigle_row(event: dict, counts: Counter, max_fix_age_ms: int,
 def export_wigle(source: Path, destination: TextIO, counts: Counter,
                  max_fix_age_ms: int = 10000, include_random_ble: bool = False) -> None:
     writer = csv.writer(destination, lineterminator="\n")
-    writer.writerow(["WigleWifi-1.6", "appRelease=LORA-Tunnel-0.1.0", "model=Heltec-V4-R8",
-                     "release=0.1.0", "device=LORA-Tunnel", "display=touchscreen",
-                     "board=Heltec-Expansion-V2", "brand=Valleytech"])
+    stream = records(source, counts)
+    first = next(stream, None)
+    metadata = first if first and first.get("type") == "session_start" else {}
+    version = metadata.get("firmware", "unknown")
+    board = metadata.get("board", "unspecified")
+    version = version if isinstance(version, str) and re.fullmatch(r"[A-Za-z0-9.+_-]{1,48}", version) else "unknown"
+    board = text_field(board, 80) or "unspecified"
+    writer.writerow(["WigleWifi-1.6", "appRelease=LORA-Tunnel-" + version, "model=" + board,
+                     "release=" + version, "device=LORA-Tunnel", "display=embedded",
+                     "board=" + board, "brand=Valleytech"])
     writer.writerow(WIGLE_COLUMNS)
-    for event in records(source, counts):
+    for event in chain(() if first is None else (first,), stream):
         row = wigle_row(event, counts, max_fix_age_ms, include_random_ble)
         if row is not None:
             writer.writerow(row)

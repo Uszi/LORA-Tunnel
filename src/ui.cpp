@@ -1,3 +1,4 @@
+#if !defined(LORA_TUNNEL_CARDPUTER_ADV)
 #include "ui.h"
 #include "hardware.h"
 #include "recon.h"
@@ -432,7 +433,7 @@ const char* keyRow(int row) {
   return keyPage == 2 ? symbols[row] : keyPage == 1 ? upper[row] : lower[row];
 }
 
-void keyboard() {
+void drawKeyboard() {
   heading("ENTER VALUE / LOCAL SD STORAGE");
   if (!buffered) gfx().fillRect(0, 110, FRAME_WIDTH, 134, BG);
   label(fields[field], 9, 50, GREEN, 1, 36);
@@ -650,6 +651,11 @@ void drawFocus(const ui::Model& m) {
 }
 
 namespace ui {
+void keyboard(const input::KeyEvent&, const Model&) {}
+uint32_t inputLatencyP95Ms() { return 0; }
+uint32_t inputLatencyMaxMs() { return 0; }
+uint32_t inputLatencySamples() { return 0; }
+bool allowsBackgroundUpload() { return page != Page::Keyboard; }
 void begin(Handler handler) {
   onAction = handler;
   bootAt = 0;
@@ -757,7 +763,7 @@ void tick(const Model& model) {
   else if (page == Page::Settings) settings(model);
   else if (page == Page::Credentials) credentials(model);
   else if (page == Page::Regions) regions(model);
-  else keyboard();
+  else drawKeyboard();
   if(powerDialog || model.shutting_down) powerPopup(model);
   drawFocus(model);
   gfx().endWrite();
@@ -768,3 +774,4 @@ void tick(const Model& model) {
   paintedAt = now;
 }
 }
+#endif // !LORA_TUNNEL_CARDPUTER_ADV

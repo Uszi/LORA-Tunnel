@@ -52,6 +52,19 @@ inline const Profile* find(const char* code) {
   if(code) for(const auto& profile:profiles) if(!std::strcmp(code,profile.code)) return &profile;
   return nullptr;
 }
-inline bool selectable(const Profile& profile) { return profile.high_band_compatible; }
+inline bool fitsHardware(double frequency, double bandwidth,
+                         double minimum, double maximum) {
+  const double halfWidth=bandwidth/2000.0;
+  return frequency-halfWidth>=minimum-0.000001 && frequency+halfWidth<=maximum+0.000001;
+}
+#if defined(LORA_TUNNEL_CARDPUTER_ADV)
+constexpr double hardwareMinimum=868.0, hardwareMaximum=923.0;
+#else
+constexpr double hardwareMinimum=863.0, hardwareMaximum=928.0;
+#endif
+inline bool selectable(const Profile& profile) {
+  return profile.high_band_compatible &&
+      fitsHardware(profile.frequency_mhz,profile.bandwidth_khz,hardwareMinimum,hardwareMaximum);
+}
 inline bool isUnset(const char* code) { return code && !std::strcmp(code,"UNSET"); }
 } }

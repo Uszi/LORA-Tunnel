@@ -5,6 +5,7 @@
 #include "config.h"
 #include "text_sanitize.h"
 #include "gnss_protocol.h"
+#include "resource_memory.h"
 #include <WiFi.h>
 #include <esp_wifi.h>
 #include <esp_bt.h>
@@ -151,15 +152,24 @@ struct NmeaDiagnostics {
   }
 } nmeaDiagnostics;
 NimBLEScan* bleScanner=nullptr;
-SPIClass radioBus(FSPI);
-SX1262 radio=new Module(board::LORA_CS,board::LORA_IRQ,board::LORA_RESET,board::LORA_BUSY,radioBus);
+SX1262 radio=new Module(board::LORA_CS,board::LORA_IRQ,board::LORA_RESET,board::LORA_BUSY,hw::radioSpi());
 std::atomic<bool> radioIRQ{false}, wifiDone{false};
 bool radioOK=false;
 bool radioInitialized=false, radioInitAttempted=false;
-bool radioBusStarted=false;
+enum class RadioTransition { None, Receive, Standby };
+RadioTransition radioPending=RadioTransition::None;
+// All radio operations run from the main task. The IRQ only sets a flag.
+// Cardputer shares this bus with SD; Heltec has an independent radio bus.
+struct RadioBusLock {
+  bool held=false;
+  explicit RadioBusLock(TickType_t timeout=pdMS_TO_TICKS(50)) {
+    held=!board::LORA_SHARED_WITH_SD || xSemaphoreTake(busMutex,timeout)==pdTRUE;
+  }
+  ~RadioBusLock() { if(held && board::LORA_SHARED_WITH_SD) xSemaphoreGive(busMutex); }
+};
 std::atomic<bool> quietLatched{false};
 bool quietFinished=false, quietShutdownOK=false;
-enum class Phase { Idle, Wifi, ReconWifi, Ble, Guard };
+enum class Phase { Idle, Wifi, WifiResults, ReconWifi, Ble, Guard };
 Phase phase=Phase::Idle;
 uint32_t phaseAt=0;
 uint32_t reconHopAt=0;
@@ -170,12 +180,32 @@ std::atomic<bool> reconWifiActive{false};
 Observation* wifiScratch=nullptr;
 Observation* bleScratch=nullptr;
 constexpr uint32_t RECON_DWELL_MS=200;
-constexpr UBaseType_t RECON_MANAGEMENT_RESERVE=8;
+constexpr UBaseType_t RECON_MANAGEMENT_RESERVE=board::MANAGEMENT_RESERVE;
 constexpr size_t BLE_CAPTURE_MAX=512;
 constexpr size_t LORA_CAPTURE_MAX=255;
 wifi_ap_record_t aps[64];
+uint16_t wifiResultCount=0,wifiResultNext=0;
 
 void IRAM_ATTR onRadio() { radioIRQ.store(true,std::memory_order_relaxed); }
+void serviceRadioTransition() {
+  if(radioPending==RadioTransition::None) return;
+  if(!radioInitialized) { radioPending=RadioTransition::None; return; }
+  // SD open/flush may legitimately take longer than a UI tick. Contention is
+  // deferred work, not a radio failure, including while capture is stopped.
+  RadioBusLock lock(0);
+  if(!lock.held) return;
+  const bool receive=radioPending==RadioTransition::Receive && radioOK &&
+      capturing.load() && captureMode.load()==CaptureMode::Wardriver;
+  radioPending=RadioTransition::None;
+  radioIRQ=false;
+  bool ok=radio.standby()==RADIOLIB_ERR_NONE;
+  if(ok && receive) {
+    hw::setLoRaFrontend(true,config.lna);
+    ok=hw::loraFrontendPresent() && radio.startReceive()==RADIOLIB_ERR_NONE;
+  }
+  if(!ok) { ++counters.radio_errors; radioOK=false; }
+  if(!ok || !receive) hw::setLoRaFrontend(false);
+}
 class BleCallbacks final: public NimBLEScanCallbacks {
   void onResult(const NimBLEAdvertisedDevice* device) override {
     if(!bleScratch || !capturing.load(std::memory_order_relaxed)) return;
@@ -314,13 +344,21 @@ void startWifi() {
   else { ++counters.radio_errors; phase=Phase::Guard; phaseAt=millis(); }
 }
 void collectWifi() {
+  wifiResultCount=wifiResultNext=0;
   uint16_t count=0;
   if(esp_wifi_scan_get_ap_num(&count)!=ESP_OK) { esp_wifi_clear_ap_list(); ++counters.radio_errors; return; }
   if(count>64) counters.ingress_drops.fetch_add(count-64);
   uint16_t available=std::min(count,uint16_t(64));
   if(available==0) { esp_wifi_clear_ap_list(); return; }
   if(esp_wifi_scan_get_ap_records(&available,aps)!=ESP_OK) { esp_wifi_clear_ap_list(); ++counters.radio_errors; return; }
-  for(uint16_t i=0;i<available;++i) {
+  wifiResultCount=available;
+}
+void serviceWifiResults() {
+  // Avoid overflowing a compact no-PSRAM ingress queue with all64 SDK AP
+  // results in one burst. Four deliveries leave time for RX, UI and draining.
+  unsigned budget=4;
+  while(wifiResultNext<wifiResultCount && budget--) {
+    const uint16_t i=wifiResultNext++;
     Observation event;
     const auto& ap=aps[i]; event.kind=Kind::Wifi;
     snprintf(event.address,sizeof(event.address),"%02x:%02x:%02x:%02x:%02x:%02x",ap.bssid[0],ap.bssid[1],ap.bssid[2],ap.bssid[3],ap.bssid[4],ap.bssid[5]);
@@ -337,12 +375,14 @@ void collectWifi() {
     strlcpy(event.security,auth(ap.authmode),sizeof(event.security));
     submit(event);
   }
-  ++counters.scan_cycles;
+  if(wifiResultNext==wifiResultCount) { ++counters.scan_cycles; startBle(); }
 }
 void serviceLoRa() {
   // Service at most one completed frame per loop so other work stays bounded.
   // Radio FIFO/metadata are consumed before the Wi-Fi result batch can delay us.
-  if(!radioOK || !radioIRQ.exchange(false)) return;
+  if(!radioOK || radioPending!=RadioTransition::None || !radioIRQ.load()) return;
+  RadioBusLock lock(0);
+  if(!lock.held || !radioIRQ.exchange(false)) return;
   Observation event;
   event.kind=Kind::Lora;
   bool received=false;
@@ -438,7 +478,7 @@ void clearGnssEpoch() {
 const char* gnssSoftwareVersion() { return gnssSoftware; }
 bool gnssControlPending() { return gnssHoldMs!=0; }
 bool gnssControl(GnssControl command) {
-  if(capturing.load() || gnssHoldMs || (gnssControlSent && millis()-gnssControlAt<5000)) return false;
+  if(!board::GNSS_PCAS || capturing.load() || gnssHoldMs || (gnssControlSent && millis()-gnssControlAt<5000)) return false;
   char wire[64]; size_t length=0;
   switch(command) {
     case GnssControl::Version: length=gnss_protocol::versionQueryCommand(wire,sizeof(wire)); break;
@@ -468,7 +508,7 @@ void gnssTick() {
     }
     return;
   }
-  if(!nmeaDiagnostics.data.output_config_attempted && millis()-gnssUartAt>=1500) {
+  if(board::GNSS_PCAS && !nmeaDiagnostics.data.output_config_attempted && millis()-gnssUartAt>=1500) {
     char command[64];
     const size_t length=gnss_protocol::diagnosticCommand(command,sizeof(command));
     if(length && gpsSerial.availableForWrite()>=static_cast<int>(length)) {
@@ -530,16 +570,19 @@ GnssDiagnostics gnssDiagnostics() {
 }
 bool scannersBegin() {
   if(quietLatched.load(std::memory_order_relaxed)) return false;
-  if(!wifiScratch) wifiScratch=static_cast<Observation*>(heap_caps_malloc(sizeof(Observation),MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT));
-  if(!bleScratch) bleScratch=static_cast<Observation*>(heap_caps_malloc(sizeof(Observation),MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT));
+  if(!wifiScratch) wifiScratch=static_cast<Observation*>(allocatePayload(sizeof(Observation)));
+  if(!bleScratch) bleScratch=static_cast<Observation*>(allocatePayload(sizeof(Observation)));
   if(!wifiScratch || !bleScratch) return false;
-  WiFi.persistent(false); WiFi.setAutoReconnect(false); WiFi.mode(WIFI_STA); WiFi.disconnect(false,false);
-  // Passive scan only. No credentials are used for association in this milestone.
+  WiFi.persistent(false); WiFi.setAutoReconnect(false);
+  if(!WiFi.mode(WIFI_STA)) { ++counters.radio_errors; return false; }
+  WiFi.disconnect(false,false);
+  // Capture is passive; the separate uploader may associate only while stopped.
   wifi_country_t country{}; memcpy(country.cc,"US",3); country.schan=1; country.nchan=11; country.policy=WIFI_COUNTRY_POLICY_MANUAL;
-  if(esp_wifi_set_country(&country)!=ESP_OK) ++counters.radio_errors;
+  if(esp_wifi_set_country(&country)!=ESP_OK) { ++counters.radio_errors; return false; }
   WiFi.onEvent([](WiFiEvent_t event) { if(event==ARDUINO_EVENT_WIFI_SCAN_DONE) wifiDone=true; });
-  NimBLEDevice::init("LORA Tunnel");
+  if(!NimBLEDevice::init("LORA Tunnel")) { ++counters.radio_errors; return false; }
   bleScanner=NimBLEDevice::getScan();
+  if(!bleScanner) { ++counters.radio_errors; return false; }
   bleScanner->setScanCallbacks(&bleCallbacks,true);
   bleScanner->setActiveScan(false);
   bleScanner->setInterval(100); bleScanner->setWindow(80); bleScanner->setMaxResults(0);
@@ -548,15 +591,23 @@ bool scannersBegin() {
 }
 bool scannersConfigureLoRa() {
   if(capturing.load() || quietLatched.load()) return false;
+  if(!radioInitialized && (!config.lora_enabled || !hw::loraFrontendPresent() || !regionHardwareCompatible())) {
+    radioPending=RadioTransition::None; radioOK=false; radioIRQ=false;
+    hw::setLoRaFrontend(false);
+    if(config.lora_enabled) { ++counters.radio_errors; return false; }
+    return true;
+  }
+  RadioBusLock lock;
+  if(!lock.held) { ++counters.radio_errors; radioOK=false; hw::setLoRaFrontend(false); return false; }
+  radioPending=RadioTransition::None;
   if(radioInitialized) radio.standby();
   hw::setLoRaFrontend(false); radioOK=false; radioIRQ=false;
   if(!config.lora_enabled) return true;
-  if(!radioBusStarted) {
-    radioBus.begin(board::LORA_SCK,board::LORA_MISO,board::LORA_MOSI,board::LORA_CS);
-    radioBusStarted=true;
+  if(!hw::loraFrontendPresent() || !regionHardwareCompatible()) {
+    ++counters.radio_errors; return false;
   }
   radioInitAttempted=true;
-  const int state=radio.begin(config.frequency,config.bandwidth,config.sf,config.cr,0x2b,0,config.preamble,board::LORA_TCXO_VOLTS,false);
+  const int state=radio.begin(config.frequency,config.bandwidth,config.sf,config.cr,0x2b,0,config.preamble,board::LORA_TCXO_VOLTS,board::LORA_USE_LDO);
   if(state!=RADIOLIB_ERR_NONE) { ++counters.radio_errors; return false; }
   radioInitialized=true;
   const int switchState=radio.setDio2AsRfSwitch(true);
@@ -569,24 +620,23 @@ void scannersStart() {
   if(quietLatched.load(std::memory_order_relaxed) || !bleScanner) return;
   const bool wardriver=captureMode.load(std::memory_order_relaxed)==CaptureMode::Wardriver;
   if(wardriver) startWifi(); else startReconWifi();
-  if(radioOK && wardriver) {
-    radio.standby(); hw::setLoRaFrontend(true,config.lna); radioIRQ=false;
-    if(radio.startReceive()!=RADIOLIB_ERR_NONE) { ++counters.radio_errors; radioOK=false; hw::setLoRaFrontend(false); }
-  } else {
-    radioIRQ=false;
-    if(radioOK) radio.standby();
-    hw::setLoRaFrontend(false);
-  }
+  radioIRQ=false;
+  hw::setLoRaFrontend(false);
+  radioPending=!radioInitialized ? RadioTransition::None :
+      radioOK && wardriver ? RadioTransition::Receive : RadioTransition::Standby;
+  serviceRadioTransition();
 }
 void scannersStop() {
   if(quietFinished) return;
+  radioIRQ=false;
+  hw::setLoRaFrontend(false);
+  radioPending=radioInitialized ? RadioTransition::Standby : RadioTransition::None;
   if(phase==Phase::Wifi) esp_wifi_scan_stop();
   stopReconWifi();
   if(bleScanner) bleScanner->stop();
   esp_wifi_clear_ap_list(); phase=Phase::Idle;
-  if(radioOK) radio.standby();
-  radioIRQ=false; wifiDone=false;
-  hw::setLoRaFrontend(false);
+  wifiDone=false;
+  serviceRadioTransition();
 }
 bool scannersEnterQuiet() {
   // The capture gate also prevents a future session from reviving callbacks
@@ -604,10 +654,14 @@ bool scannersEnterQuiet() {
   // A failed initialization does not prove the chip reached a quiet state.
   bool loraOff=!radioInitAttempted;
   if(radioInitialized) {
-    const int standbyState=radio.standby();
-    const int sleepState=radio.sleep(true);
-    loraOff=standbyState==RADIOLIB_ERR_NONE && sleepState==RADIOLIB_ERR_NONE;
+    RadioBusLock lock;
+    if(lock.held) {
+      const int standbyState=radio.standby();
+      const int sleepState=radio.sleep(true);
+      loraOff=standbyState==RADIOLIB_ERR_NONE && sleepState==RADIOLIB_ERR_NONE;
+    } else loraOff=false;
   }
+  radioPending=RadioTransition::None;
   hw::setLoRaFrontend(false);
   radioOK=false;
   radioIRQ=false;
@@ -630,10 +684,13 @@ bool scannersEnterQuiet() {
   return quietShutdownOK;
 }
 void scannersTick() {
+  serviceRadioTransition();
   if(quietLatched.load(std::memory_order_relaxed) || !capturing.load()) return;
   if(captureMode.load(std::memory_order_relaxed)==CaptureMode::Wardriver) serviceLoRa();
   if(phase==Phase::Wifi && wifiDone.exchange(false)) {
-    collectWifi(); startBle();
+    collectWifi(); phase=Phase::WifiResults;
+  } else if(phase==Phase::WifiResults) {
+    serviceWifiResults();
   } else if(phase==Phase::Wifi && millis()-phaseAt>15000) {
     esp_wifi_scan_stop(); esp_wifi_clear_ap_list(); ++counters.radio_errors;
     phase=Phase::Guard; phaseAt=millis();
@@ -658,7 +715,7 @@ void scannersTick() {
 }
 const char* scanPhase() {
   if(quietLatched.load(std::memory_order_relaxed)) return "Quiet until reboot";
-  switch(phase) { case Phase::Wifi:return "Wi-Fi passive"; case Phase::ReconWifi:return "Recon Wi-Fi frames"; case Phase::Ble:return "BLE passive"; case Phase::Guard:return "Radio guard"; default:return "Ready"; }
+  switch(phase) { case Phase::Wifi:return "Wi-Fi passive"; case Phase::WifiResults:return "Wi-Fi results"; case Phase::ReconWifi:return "Recon Wi-Fi frames"; case Phase::Ble:return "BLE passive"; case Phase::Guard:return "Radio guard"; default:return "Ready"; }
 }
-bool loraReady() { return radioOK; }
+bool loraReady() { return radioOK && hw::loraFrontendPresent(); }
 }

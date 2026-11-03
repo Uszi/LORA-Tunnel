@@ -5,6 +5,7 @@
 #include "mesh_header.h"
 #include "version.h"
 #include "ble_ad_summary.h"
+#include "resource_memory.h"
 #include <SD.h>
 #include <ArduinoJson.h>
 #include <esp_heap_caps.h>
@@ -16,7 +17,8 @@ namespace {
 QueueHandle_t queue = nullptr;
 StaticQueue_t queueControl;
 uint8_t* queueStorage=nullptr;
-constexpr UBaseType_t QUEUE_RECORDS=32;
+constexpr UBaseType_t QUEUE_RECORDS=board::WRITER_RECORDS;
+TaskHandle_t writerTask=nullptr;
 std::atomic<bool> mounted{false}, openSession{false}, busy{false};
 File sessionFile;
 uint32_t sequence=0, fileSession=0;
@@ -36,13 +38,24 @@ void fault() {
 void flush() {
   if (!sessionFile || used==0) return;
   const uint32_t started=millis();
-  if (sessionFile.write(reinterpret_cast<const uint8_t*>(buffer),used)!=used) { fault(); return; }
+  size_t offset=0;
+  while(offset<used) {
+    const size_t amount=std::min(used-offset,board::LORA_SHARED_WITH_SD ? size_t(512) : used);
+    xSemaphoreTake(busMutex,portMAX_DELAY);
+    const size_t written=sessionFile.write(reinterpret_cast<const uint8_t*>(buffer)+offset,amount);
+    if(written!=amount || sessionFile.getWriteError()) { fault(); xSemaphoreGive(busMutex); return; }
+    xSemaphoreGive(busMutex);
+    offset+=amount;
+    // Release the shared cap SPI bus between SD blocks for RX FIFO/rearm.
+    if(board::LORA_SHARED_WITH_SD) vTaskDelay(1);
+  }
+  xSemaphoreTake(busMutex,portMAX_DELAY);
   sessionFile.flush();
-  if (sessionFile.getWriteError()) { fault(); return; }
-  used=0;
+  if(sessionFile.getWriteError()) { fault(); xSemaphoreGive(busMutex); return; }
+  xSemaphoreGive(busMutex);
+  used=0; bufferedRecords=0;
   const uint32_t elapsed=millis()-started;
-  bufferedRecords=0;
-  if (elapsed>counters.flush_max_ms) counters.flush_max_ms=elapsed;
+  if(elapsed>counters.flush_max_ms) counters.flush_max_ms=elapsed;
 }
 void hex(const uint8_t* bytes,size_t size,char* out) {
   constexpr char digits[]="0123456789abcdef";
@@ -199,9 +212,10 @@ void task(void*) {
   for (;;) {
     if (xQueueReceive(queue,&event,pdMS_TO_TICKS(100))==pdTRUE) {
       busy=true;
-      xSemaphoreTake(busMutex,portMAX_DELAY);
       if (event.kind==Kind::Start) {
-        flush(); if(sessionFile) sessionFile.close();
+        flush();
+        xSemaphoreTake(busMutex,portMAX_DELAY);
+        if(sessionFile) sessionFile.close();
         fileSession=event.session; sequence=0; used=0; openSession=true;
         if (mounted) {
           char path[64]; snprintf(path,sizeof(path),"/sessions/LT-%08lx.jsonl",(unsigned long)event.session);
@@ -209,17 +223,21 @@ void task(void*) {
           if (SD.exists(path)) fault();
           else { sessionFile=SD.open(path,FILE_WRITE); if (!sessionFile) fault(); }
         }
+        xSemaphoreGive(busMutex);
       }
       if (event.session==fileSession && sessionFile) serialize(event);
       else ++counters.log_drops;
       if (event.kind==Kind::Stop) {
-        flush(); if(sessionFile) sessionFile.close(); openSession=false;
+        flush();
+        xSemaphoreTake(busMutex,portMAX_DELAY);
+        if(sessionFile) sessionFile.close();
+        xSemaphoreGive(busMutex);
+        openSession=false;
       }
-      xSemaphoreGive(busMutex);
       busy=false;
     }
     if (millis()-lastFlush>=2000) {
-      xSemaphoreTake(busMutex,portMAX_DELAY); flush(); xSemaphoreGive(busMutex);
+      flush();
       lastFlush=millis();
     }
   }
@@ -234,16 +252,16 @@ bool mountStorage() {
   return mounted;
 }
 bool storageReady() { return mounted; }
+uint32_t loggerStackMargin() { return writerTask ? uxTaskGetStackHighWaterMark(writerTask) : 0; }
 bool loggerBegin() {
   if(queue) return true;
-  // Keep bounded raw-frame queue storage out of scarce internal RAM. Queue
-  // control and writer task stack stay internal; unavailable PSRAM is explicit.
-  queueStorage=static_cast<uint8_t*>(heap_caps_malloc(QUEUE_RECORDS*sizeof(Observation),MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT));
+  // Target-specific bounded payload storage; task/queue control stay internal.
+  queueStorage=static_cast<uint8_t*>(allocatePayload(QUEUE_RECORDS*sizeof(Observation)));
   if(!queueStorage) return false;
   queue=xQueueCreateStatic(QUEUE_RECORDS,sizeof(Observation),queueStorage,&queueControl);
   if(!queue) { heap_caps_free(queueStorage); queueStorage=nullptr; return false; }
   // ESP-IDF's task stack argument is bytes, not vanilla FreeRTOS words.
-  if(xTaskCreatePinnedToCore(task,"sd-writer",12288,nullptr,1,nullptr,0)!=pdPASS) {
+  if(xTaskCreatePinnedToCore(task,"sd-writer",12288,nullptr,1,&writerTask,0)!=pdPASS) {
     vQueueDelete(queue); queue=nullptr;
     heap_caps_free(queueStorage); queueStorage=nullptr;
     return false;

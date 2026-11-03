@@ -44,6 +44,17 @@ class ExportTests(unittest.TestCase):
             method(path, output, counts, **kwargs)
             return output.getvalue(), counts
 
+    def test_export_header_uses_recorded_board_and_version(self):
+        start={"schema":1,"type":"session_start","firmware":"0.4.0-beta.1","board":"Cardputer ADV + LoRa-1262 U214"}
+        body,count=self.run_export([start,wifi()])
+        header=next(csv.reader(io.StringIO(body)))
+        self.assertIn("release=0.4.0-beta.1",header)
+        self.assertIn("board=Cardputer ADV + LoRa-1262 U214",header)
+        self.assertEqual(count["exported"],1)
+        body,_=self.run_export([wifi()])
+        self.assertIn("release=unknown",body.splitlines()[0])
+        self.assertNotIn("Heltec",body.splitlines()[0])
+
     def test_current_columns_utc_escaping_unknown_accuracy(self):
         body, count = self.run_export([wifi()])
         rows = list(csv.reader(io.StringIO(body)))

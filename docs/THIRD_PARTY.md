@@ -37,6 +37,10 @@ The imported vendor data contains 201 public-fact rows with per-row evidence and
 | RadioLib | 7.8.1 | [Library](https://github.com/jgromes/RadioLib/tree/7.8.1), MIT |
 | TinyGPSPlus | 1.1.0 package | [Library](https://github.com/mikalhart/TinyGPSPlus), LGPL-2.1-or-later per source headers |
 | ArduinoJson | 6.21.5 | [Library](https://github.com/bblanchon/ArduinoJson/tree/v6.21.5), MIT |
+| M5Cardputer (Cardputer target) | `2d4fa6646e4e5b47e0af96214b003aa7b15b8d81`; upstream manifest reports 1.1.1 | [Pinned source](https://github.com/m5stack/M5Cardputer/tree/2d4fa6646e4e5b47e0af96214b003aa7b15b8d81), MIT SPDX notices; bundled adapted Adafruit TCA8418 driver remains BSD-3-Clause, with supplemental full notice in `third_party/licenses/Adafruit-TCA8418-LICENSE.txt` |
+| M5Unified (Cardputer target) | 0.2.29 | [Library](https://github.com/m5stack/M5Unified/tree/0.2.29), MIT |
+| M5GFX (Cardputer target) | 0.2.36 | [Library](https://github.com/m5stack/M5GFX/tree/0.2.36), MIT with bundled font/component notices preserved |
+| IRremote (Cardputer package dependency) | 4.5.0 | [Library](https://github.com/Arduino-IRremote/Arduino-IRremote/tree/4.5.0), MIT; resolved M5Cardputer package dependency, not an infrared feature of LORA Tunnel |
 | LORA Tunnel Recon adapter / Dragon Detector subset | Local adapter 0.1.0; Dragon revision `7a09930ee8ab112b9b87e94c1c9e47e5e6faaa21` | MIT subset and adapter; inherited notices retained under `lib/recon`, as detailed above |
 | OpenDroneID | Vendored revision `849c03adbe0cdd68997a462fafab397edcfe53f3` | Apache-2.0; exact local sources and notices under `lib/opendroneid`, with no registry wildcard dependency |
 

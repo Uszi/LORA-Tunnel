@@ -1,5 +1,7 @@
 # Practical acceptance checklist
 
+For the Cardputer ADV 0.4.0-beta.1 release gate, use [CARDPUTER_RELEASE.md](CARDPUTER_RELEASE.md), including physical keyboard/LoRa/GNSS/SD/browser/Launcher checks and live service acceptance. Heltec-specific hardware steps below remain scoped to Heltec. Rendering latency counters measure dispatch-to-draw, not complete physical key-to-pixel latency.
+
 This checklist covers the source being prepared for **0.3.0-beta.1**. Results
 are versioned in [VALIDATION.md](VALIDATION.md): scoped recovery acquisition,
 verified installations, short mode/capture/Stop checks and user appearance
@@ -254,12 +256,12 @@ Use a copy of this checklist for each hardware revision.
   alert cooldowns, mute, returning sightings and changing RSSI remain usable.
 - [ ] A summary entry can be deduplicated while subsequent observations and
   their changed signal/location still enter the session log.
-- [ ] Verify PSRAM queue/scratch allocation failures refuse initialization
+- [ ] Verify target-specific queue/scratch allocation failures refuse initialization
   cleanly, and saturated raw-data traffic increments ingress drops while the
   reserved management capacity and UI remain useful. Allocation success alone
   is not a memory endurance result.
 
-## Milestone 5: exports and eventual upload
+## Milestone 5: exports and idle-only upload
 
 - [ ] Run host tests: `py -3 -m unittest discover -s tests -p test_exports.py -v`.
   Current tests cover schema/format, malformed/truncated input, staleness,
@@ -275,16 +277,15 @@ Use a copy of this checklist for each hardware revision.
   direct reception. Check both Meshtastic and MeshCore identity namespaces.
 - [ ] Keep all synthetic fixtures offline. Service acceptance requires real
   observations and intentionally configured credentials, not a synthetic test.
-- [ ] When firmware upload exists, test manual upload first. Record response
+- [ ] For 0.4 firmware, test manual upload first with explicitly configured service credentials. Record response
   transaction/job ID and accepted/rejected counts; bytes sent or HTTP 200 alone
   are insufficient evidence that records were imported.
 - [ ] Enable optional auto-upload deliberately, on configured Wi-Fi while
   capture is stopped. Test loss of connectivity, partial success, invalid
   tokens, rate limits, retry backoff and reboot persistence of upload state.
 - [ ] Verify a successful upload does not delete original logs and independent
-  WiGLE/WDGWars state prevents unintended duplicate resubmissions.
-- [ ] Measure scan interruption explicitly if capture-time uploads are later
-  offered. Wi-Fi/BLE share one ESP32 radio; do not promise continuous capture.
+  WiGLE/Wardrift/WDGWars state prevents unintended duplicate resubmissions.
+- [ ] While an upload is connecting/sending/polling, request Start. Verify cancellation/teardown completes before capture restarts and no upload runs during capture. Wi-Fi/BLE share one ESP32 radio; capture-time upload is not offered.
 
 ## Result record
 

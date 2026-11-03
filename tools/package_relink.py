@@ -13,6 +13,8 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 ENV = "heltec-v4-r8-tft"
 LIBRARIES = ("ArduinoJson", "LovyanGFX", "NimBLE-Arduino", "RadioLib", "TinyGPSPlus")
+CARDPUTER_ENV = "cardputer-adv-lora1262"
+CARDPUTER_LIBRARIES = ("ArduinoJson", "NimBLE-Arduino", "RadioLib", "TinyGPSPlus", "M5Cardputer", "M5Unified", "M5GFX", "IRremote")
 EXCLUDED_PARTS = {".git", ".github", "__pycache__", ".pio", ".pio-core"}
 
 
@@ -34,7 +36,7 @@ def files_below(folder):
         yield path, relative.as_posix()
 
 
-def collect(root):
+def collect(root, env=ENV):
     framework = root / ".pio-core/packages/framework-arduinoespressif32"
     meta = json.loads((framework / "package.json").read_text(encoding="utf-8"))
     if meta.get("version") != "3.3.12":
@@ -42,8 +44,15 @@ def collect(root):
     entries = []
     for path, relative in files_below(framework):
         entries.append(("framework/" + relative, path))
-    for name in LIBRARIES:
-        folder = root / ".pio/libdeps" / ENV / name
+    for name in (CARDPUTER_LIBRARIES if env == CARDPUTER_ENV else LIBRARIES):
+        folder = root / ".pio/libdeps" / env / name
+        if env == CARDPUTER_ENV and name == "IRremote":
+            candidates = [p for p in (root / ".pio/libdeps" / env).glob("IRremote*")
+                          if (p / "library.properties").is_file() and
+                          "version=4.5.0" in (p / "library.properties").read_text(encoding="utf-8").splitlines()]
+            if len(candidates) != 1:
+                raise ValueError("Expected exactly one pinned IRremote 4.5.0 source package")
+            folder = candidates[0]
         if not folder.is_dir():
             raise FileNotFoundError("Missing installed library: " + name)
         for path, relative in files_below(folder):
@@ -88,8 +97,8 @@ def package(args):
     output = args.output.resolve()
     if output.exists():
         raise FileExistsError("Refusing to overwrite an existing companion")
-    entries = collect(root)
-    build = root / "build-output" / args.version
+    entries = collect(root, args.env)
+    build = args.build.resolve() if args.build else root / ".pio/build" / args.env
     firmware = {}
     for name in ("firmware.bin", "firmware.factory.bin", "bootloader.bin", "partitions.bin"):
         data = (build / name).read_bytes()
@@ -97,13 +106,14 @@ def package(args):
     manifest = {
         "schema": 1,
         "release": args.version,
+        "environment": args.env,
         "arduino_version": "3.3.12",
         "platform": "55.03.312-1",
         "sdk": "5.5.5+sha.b774170ff46",
         "matching_firmware": firmware,
         "application_sources": application_hashes(root),
         "files": {},
-        "source_scope": "Installed Arduino core and five direct library source packages; no SDK/toolchain binary mirror. Application source is supplied beside this companion.",
+        "source_scope": "Installed Arduino core and the selected target's pinned library source packages; no SDK/toolchain binary mirror. Application source is supplied beside this companion.",
     }
     output.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(output, "x", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
@@ -140,6 +150,8 @@ def main():
     pack.add_argument("version")
     pack.add_argument("output", type=Path)
     pack.add_argument("--root", type=Path, default=ROOT)
+    pack.add_argument("--env", choices=(ENV, CARDPUTER_ENV), default=ENV)
+    pack.add_argument("--build", type=Path, help="Exact matching build-output directory; defaults to .pio/build/ENV")
     check = commands.add_parser("verify")
     check.add_argument("archive", type=Path)
     args = parser.parse_args()
