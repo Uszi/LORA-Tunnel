@@ -32,6 +32,13 @@ bool gnssControl(GnssControl command);
 bool gnssControlPending();
 const char* gnssSoftwareVersion();
 bool scannersBegin();
+// Cardputer only: worker-owned BLE release/restore while capture and saving are
+// stopped. Never call from a BLE callback or while holding the storage mutex.
+// Transitions use an independent 15-second recovery timer; timeout is failure.
+bool scannersPauseBleForUpload();
+bool scannersRestoreBleAfterUpload();
+bool scannersCaptureReady();
+const char* scannersInitStage();
 void scannersStart();
 void scannersStop();
 // Manual bench-only terminal state: refuses active capture, stops controllers,

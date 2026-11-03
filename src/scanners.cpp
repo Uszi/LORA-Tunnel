@@ -6,6 +6,8 @@
 #include "text_sanitize.h"
 #include "gnss_protocol.h"
 #include "resource_memory.h"
+#include "logger.h"
+#include <esp_system.h>
 #include <WiFi.h>
 #include <esp_wifi.h>
 #include <esp_bt.h>
@@ -16,6 +18,7 @@
 #include <TinyGPSPlus.h>
 #include <algorithm>
 #include <new>
+#include <nvs_flash.h>
 
 namespace tunnel {
 Counters counters;
@@ -25,6 +28,13 @@ std::atomic<bool> capturing{false};
 std::atomic<uint32_t> sessionId{0};
 std::atomic<CaptureMode> captureMode{CaptureMode::Wardriver};
 namespace {
+std::atomic<const char*> initStage{"not_started"};
+std::atomic<bool> bleCaptureReady{false};
+#if defined(LORA_TUNNEL_CARDPUTER_ADV)
+std::atomic<bool> blePausedForUpload{false};
+esp_timer_handle_t bleTransitionTimer=nullptr;
+std::atomic<unsigned> bleTransitionPhase{0};
+#endif
 portMUX_TYPE fixMux=portMUX_INITIALIZER_UNLOCKED;
 portMUX_TYPE captureMux=portMUX_INITIALIZER_UNLOCKED;
 Fix fix;
@@ -177,13 +187,22 @@ uint8_t reconChannel=1;
 std::atomic<bool> reconWifiActive{false};
 // Each producer is serialized by its own driver task. Separate reusable PSRAM
 // scratch objects avoid large callback-stack frames and allocate only at init.
-Observation* wifiScratch=nullptr;
-Observation* bleScratch=nullptr;
+CaptureObservation* wifiScratch=nullptr;
+CaptureObservation* bleScratch=nullptr;
 constexpr uint32_t RECON_DWELL_MS=200;
 constexpr UBaseType_t RECON_MANAGEMENT_RESERVE=board::MANAGEMENT_RESERVE;
 constexpr size_t BLE_CAPTURE_MAX=512;
 constexpr size_t LORA_CAPTURE_MAX=255;
-wifi_ap_record_t aps[64];
+// Keep all 64 APs and all fields consumed by logging/UI, without the SDK's
+// unused PHY/country/cipher metadata in each persistent inventory slot.
+struct ScanAp {
+  uint8_t bssid[6]{}, ssid[33]{};
+  uint8_t primary=0;
+  int8_t rssi=0;
+  wifi_auth_mode_t authmode=WIFI_AUTH_OPEN;
+};
+static_assert(sizeof(ScanAp)==48, "AP snapshot must remain compact");
+ScanAp aps[64];
 uint16_t wifiResultCount=0,wifiResultNext=0;
 
 void IRAM_ATTR onRadio() { radioIRQ.store(true,std::memory_order_relaxed); }
@@ -209,7 +228,7 @@ void serviceRadioTransition() {
 class BleCallbacks final: public NimBLEScanCallbacks {
   void onResult(const NimBLEAdvertisedDevice* device) override {
     if(!bleScratch || !capturing.load(std::memory_order_relaxed)) return;
-    Observation& event=*new (bleScratch) Observation{};
+    CaptureObservation& event=*new (bleScratch) CaptureObservation{};
     if(!beginObservation(event)) return;
     event.kind=Kind::Ble;
     const auto bleAddress=device->getAddress();
@@ -240,7 +259,47 @@ class BleCallbacks final: public NimBLEScanCallbacks {
   }
 } bleCallbacks;
 
-void captureSsid(Observation& event) {
+
+bool initializeBle() {
+  bleCaptureReady=false;
+  // Preflight avoids upstream NimBLE erasing NVS namespaces on an init error.
+  initStage="nvs_check";
+  if(nvs_flash_init()!=ESP_OK) { ++counters.radio_errors; return false; }
+  initStage="ble_init";
+  if(!NimBLEDevice::init("LORA Tunnel")) { ++counters.radio_errors; return false; }
+  initStage="ble_scan";
+  bleScanner=NimBLEDevice::getScan();
+  if(!bleScanner) { ++counters.radio_errors; return false; }
+  bleScanner->setScanCallbacks(&bleCallbacks,true);
+  bleScanner->setActiveScan(false);
+  bleScanner->setInterval(100); bleScanner->setWindow(80); bleScanner->setMaxResults(0);
+  bleCaptureReady=true;
+  return true;
+}
+#if defined(LORA_TUNNEL_CARDPUTER_ADV)
+bool armBleTransition(unsigned phase) {
+  // Called only before opening upload files or after all upload cleanup.
+  if(capturing.load() || !loggerIdle() || quietLatched.load()) return false;
+  if(!bleTransitionTimer) {
+    esp_timer_create_args_t args{};
+    args.callback=[](void*) {
+      Serial.printf("LT BLE transition_timeout=%s failed=1 rebooting=1\n",
+          bleTransitionPhase.load()==1?"pause":"restore");
+      esp_restart();
+    };
+    args.name="ble-upload";
+    if(esp_timer_create(&args,&bleTransitionTimer)!=ESP_OK) return false;
+  }
+  bleTransitionPhase=phase;
+  return esp_timer_start_once(bleTransitionTimer,15000000)==ESP_OK;
+}
+void disarmBleTransition() {
+  if(bleTransitionTimer) esp_timer_stop(bleTransitionTimer);
+  bleTransitionPhase=0;
+}
+#endif
+
+void captureSsid(CaptureObservation& event) {
   const uint8_t* frame=event.raw;
   if(event.length<24 || ((frame[0]>>2)&3)!=0) return;
   const uint8_t subtype=frame[0]>>4;
@@ -275,7 +334,7 @@ void onWifiFrame(void* buffer,wifi_promiscuous_pkt_type_t packetType) {
   if(!captureQueue || (frameType==2 && uxQueueSpacesAvailable(captureQueue)<=RECON_MANAGEMENT_RESERVE)) {
     ++counters.ingress_drops; return;
   }
-  Observation& event=*new (wifiScratch) Observation{};
+  CaptureObservation& event=*new (wifiScratch) CaptureObservation{};
   if(!beginObservation(event) || event.mode!=CaptureMode::Recon) return;
   event.kind=Kind::Wifi; event.wifi_frame=true;
   event.original_length=static_cast<uint16_t>(packet->rx_ctrl.sig_len-4);
@@ -350,7 +409,18 @@ void collectWifi() {
   if(count>64) counters.ingress_drops.fetch_add(count-64);
   uint16_t available=std::min(count,uint16_t(64));
   if(available==0) { esp_wifi_clear_ap_list(); return; }
-  if(esp_wifi_scan_get_ap_records(&available,aps)!=ESP_OK) { esp_wifi_clear_ap_list(); ++counters.radio_errors; return; }
+  // The single-record API releases each SDK list node as it is copied. Clear
+  // unread entries after a capped scan or any error; never keep two full arrays.
+  wifi_ap_record_t source{};
+  for(uint16_t i=0;i<available;++i) {
+    if(esp_wifi_scan_get_ap_record(&source)!=ESP_OK) {
+      esp_wifi_clear_ap_list(); ++counters.radio_errors; return;
+    }
+    memcpy(aps[i].bssid,source.bssid,sizeof(aps[i].bssid));
+    memcpy(aps[i].ssid,source.ssid,sizeof(aps[i].ssid));
+    aps[i].primary=source.primary; aps[i].rssi=source.rssi; aps[i].authmode=source.authmode;
+  }
+  esp_wifi_clear_ap_list();
   wifiResultCount=available;
 }
 void serviceWifiResults() {
@@ -359,7 +429,7 @@ void serviceWifiResults() {
   unsigned budget=4;
   while(wifiResultNext<wifiResultCount && budget--) {
     const uint16_t i=wifiResultNext++;
-    Observation event;
+    CaptureObservation event;
     const auto& ap=aps[i]; event.kind=Kind::Wifi;
     snprintf(event.address,sizeof(event.address),"%02x:%02x:%02x:%02x:%02x:%02x",ap.bssid[0],ap.bssid[1],ap.bssid[2],ap.bssid[3],ap.bssid[4],ap.bssid[5]);
     // Preserve all bytes exposed by the SDK's terminated SSID field separately
@@ -383,7 +453,7 @@ void serviceLoRa() {
   if(!radioOK || radioPending!=RadioTransition::None || !radioIRQ.load()) return;
   RadioBusLock lock(0);
   if(!lock.held || !radioIRQ.exchange(false)) return;
-  Observation event;
+  CaptureObservation event;
   event.kind=Kind::Lora;
   bool received=false;
   const size_t length=radio.getPacketLength();
@@ -432,7 +502,7 @@ void endCapture() {
   capturing.store(false,std::memory_order_relaxed);
   portEXIT_CRITICAL(&captureMux);
 }
-bool beginObservation(Observation& event) {
+bool beginObservation(CaptureObservation& event) {
   portENTER_CRITICAL(&captureMux);
   const bool active=capturing.load(std::memory_order_relaxed);
   if(active) {
@@ -443,7 +513,7 @@ bool beginObservation(Observation& event) {
   portEXIT_CRITICAL(&captureMux);
   return active;
 }
-void submit(Observation& event) {
+void submit(CaptureObservation& event) {
   if(!captureQueue || (event.session==0 && !beginObservation(event))) return;
   // Avoid holding the capture gate while acquiring the independent GNSS lock.
   event.gps=currentFix();
@@ -568,26 +638,68 @@ GnssDiagnostics gnssDiagnostics() {
   result.time_valid=gnss.time.isValid();
   return result;
 }
+const char* scannersInitStage() { return initStage.load(); }
 bool scannersBegin() {
+  initStage="scratch";
   if(quietLatched.load(std::memory_order_relaxed)) return false;
-  if(!wifiScratch) wifiScratch=static_cast<Observation*>(allocatePayload(sizeof(Observation)));
-  if(!bleScratch) bleScratch=static_cast<Observation*>(allocatePayload(sizeof(Observation)));
+  if(!wifiScratch) wifiScratch=static_cast<CaptureObservation*>(allocatePayload(sizeof(CaptureObservation)));
+  if(!bleScratch) bleScratch=static_cast<CaptureObservation*>(allocatePayload(sizeof(CaptureObservation)));
   if(!wifiScratch || !bleScratch) return false;
   WiFi.persistent(false); WiFi.setAutoReconnect(false);
+  initStage="wifi_mode";
   if(!WiFi.mode(WIFI_STA)) { ++counters.radio_errors; return false; }
+  Serial.printf("LT MEMORY phase=wifi_ready free=%u largest=%u\n",ESP.getFreeHeap(),heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT));
   WiFi.disconnect(false,false);
   // Capture is passive; the separate uploader may associate only while stopped.
   wifi_country_t country{}; memcpy(country.cc,"US",3); country.schan=1; country.nchan=11; country.policy=WIFI_COUNTRY_POLICY_MANUAL;
+  initStage="wifi_country";
   if(esp_wifi_set_country(&country)!=ESP_OK) { ++counters.radio_errors; return false; }
   WiFi.onEvent([](WiFiEvent_t event) { if(event==ARDUINO_EVENT_WIFI_SCAN_DONE) wifiDone=true; });
-  if(!NimBLEDevice::init("LORA Tunnel")) { ++counters.radio_errors; return false; }
-  bleScanner=NimBLEDevice::getScan();
-  if(!bleScanner) { ++counters.radio_errors; return false; }
-  bleScanner->setScanCallbacks(&bleCallbacks,true);
-  bleScanner->setActiveScan(false);
-  bleScanner->setInterval(100); bleScanner->setWindow(80); bleScanner->setMaxResults(0);
+  if(!initializeBle()) return false;
+  Serial.printf("LT MEMORY phase=ble_ready free=%u largest=%u\n",ESP.getFreeHeap(),heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT));
   scannersConfigureLoRa();
+  initStage="ready";
   return true; // A disabled/faulted LoRa profile must not block Wi-Fi/BLE capture.
+}
+bool scannersCaptureReady() {
+#if defined(LORA_TUNNEL_CARDPUTER_ADV)
+  return bleCaptureReady.load();
+#else
+  return true; // Heltec retains its existing boot-readiness contract.
+#endif
+}
+bool scannersPauseBleForUpload() {
+#if defined(LORA_TUNNEL_CARDPUTER_ADV)
+  if(!bleCaptureReady.load() || capturing.load() || !loggerIdle() || quietLatched.load()) return false;
+  if(!armBleTransition(1)) { initStage="ble_pause_timer_failed"; ++counters.radio_errors; return false; }
+  initStage="ble_pause"; bleCaptureReady=false;
+  if(bleScanner) bleScanner->stop();
+  const bool stopped=NimBLEDevice::deinit(false);
+  const bool off=stopped && !NimBLEDevice::isInitialized() &&
+      esp_bt_controller_get_status()==ESP_BT_CONTROLLER_STATUS_IDLE;
+  disarmBleTransition();
+  blePausedForUpload=off;
+  initStage=off?"upload_ble_off":"ble_pause_failed";
+  if(!off) ++counters.radio_errors;
+  return off;
+#else
+  return true;
+#endif
+}
+bool scannersRestoreBleAfterUpload() {
+#if defined(LORA_TUNNEL_CARDPUTER_ADV)
+  if(!blePausedForUpload.exchange(false)) return bleCaptureReady.load();
+  if(!armBleTransition(2)) { initStage="ble_restore_timer_failed"; ++counters.radio_errors; return false; }
+  const bool restored=initializeBle() &&
+      esp_bt_controller_get_status()==ESP_BT_CONTROLLER_STATUS_ENABLED;
+  bleCaptureReady=restored;
+  disarmBleTransition();
+  initStage=restored?"ready":"ble_restore_failed";
+  if(!restored) ++counters.radio_errors;
+  return restored;
+#else
+  return true;
+#endif
 }
 bool scannersConfigureLoRa() {
   if(capturing.load() || quietLatched.load()) return false;
@@ -617,7 +729,7 @@ bool scannersConfigureLoRa() {
   return true;
 }
 void scannersStart() {
-  if(quietLatched.load(std::memory_order_relaxed) || !bleScanner) return;
+  if(quietLatched.load(std::memory_order_relaxed) || !bleScanner || !scannersCaptureReady()) return;
   const bool wardriver=captureMode.load(std::memory_order_relaxed)==CaptureMode::Wardriver;
   if(wardriver) startWifi(); else startReconWifi();
   radioIRQ=false;

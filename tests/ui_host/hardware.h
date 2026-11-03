@@ -6,7 +6,6 @@
 #include <string>
 #include <vector>
 
-extern const uint8_t logoStart[] asm("_binary_assets_lora_tunnel_radio_logo_png_start");
 namespace lgfx {
 namespace fonts { constexpr int Font0=0; }
 namespace textdatum_t { constexpr int top_left=0; }
@@ -26,9 +25,7 @@ public:
   void setTextWrap(bool,bool) {}
   void setFont(const int*) {}
   void drawString(const char* text,int x,int y) { const int w=int(std::strlen(text))*6*scale;check(x,y,w,8*scale);commands.push_back({"text",text,x,y,w,8*scale,0,ink,scale}); }
-  bool drawPng(const uint8_t* data,size_t,int x,int y,int w,int h,int,int,float) {
-    check(x,y,w,h);commands.push_back({"png",data==logoStart?"radio":"vts",x,y,w,h,0,0,1});return true;
-  }
+
 };
 class LGFX_Device:public LovyanGFX {};
 class LGFX_Sprite:public LovyanGFX {

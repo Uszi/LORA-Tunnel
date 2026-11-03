@@ -20,6 +20,8 @@ namespace {
 ui::Model model;
 bool ready=false,stopping=false,hardwareReady=false;
 bool startAfterUpload=false;
+bool initWriter=false,initScanner=false,initMemory=false;
+uint32_t heapAfterHardware=0,heapAfterUi=0,heapAfterConfig=0,heapBeforeScanners=0;
 bool shutdownPending=false,shutdownHadSession=false;
 uint32_t shutdownAt=0,shutdownErrors=0,shutdownDrops=0;
 esp_timer_handle_t shutdownTimer=nullptr;
@@ -117,7 +119,20 @@ void consume(Observation& event) {
 }
 void drain(unsigned limit=48) {
   Observation event;
-  while(limit-- && xQueueReceive(captureQueue,&event,0)==pdTRUE) consume(event);
+  while(limit-- && xQueueReceive(captureQueue,static_cast<CaptureObservation*>(&event),0)==pdTRUE) {
+    // The ingress copy intentionally excludes classification. A reused record
+    // must never carry a previous Recon result into Wardriver or truncated BLE.
+    event.detection=recon::Result{};
+    consume(event);
+  }
+}
+// Keep the complete marker off the caller's frame while it drains Recon.
+// The writer copies it synchronously into its queue; no pointer escapes.
+__attribute__((noinline)) bool logSessionMarker(Kind kind,CaptureMode mode,uint32_t id) {
+  Observation marker;
+  marker.kind=kind; marker.mode=mode; marker.session=id;
+  marker.gps=currentFix(); marker.mono_ms=esp_timer_get_time()/1000;
+  return logObservation(marker);
 }
 void requestSession() {
   if(shutdownPending) { strlcpy(model.notice,"Shutdown in progress",sizeof(model.notice)); return; }
@@ -135,14 +150,14 @@ void requestSession() {
     strlcpy(model.notice,"Cancelling upload before capture",sizeof(model.notice)); return;
   }
   if(!ready || stopping || !loggerIdle()) { strlcpy(model.notice,"Not ready; check diagnostics",sizeof(model.notice)); return; }
+  if(!scannersCaptureReady()) { strlcpy(model.notice,"BLE unavailable; restart before capture",sizeof(model.notice)); return; }
   if(gnssControlPending()) { strlcpy(model.notice,"GPS restarting; try Start shortly",sizeof(model.notice)); return; }
   // Missing card is recoverable: require mount before recording a session.
   if(!storageReady()) { strlcpy(model.notice,"Insert SD, then Setup > Retry SD",sizeof(model.notice)); return; }
   uint32_t id=esp_random(); if(!id) id=1;
   sessionId=id;
   const CaptureMode mode=model.recon?CaptureMode::Recon:CaptureMode::Wardriver;
-  Observation start; start.kind=Kind::Start; start.mode=mode; start.session=id; start.gps=currentFix(); start.mono_ms=esp_timer_get_time()/1000;
-  if(!logObservation(start)) return;
+  if(!logSessionMarker(Kind::Start,mode,id)) return;
   memset(totals,0,sizeof(totals));
   reconTotal=0;
   for(auto& summary:summaries) summary=Summary{};
@@ -289,7 +304,7 @@ void refreshModel() {
 }
 void serialStatus() {
   const auto fix=currentFix();
-  Serial.printf("LT STATUS version=%s target=%s uptime_ms=%lu ready=%d running=%d saving=%d sd=%d touch=%d lora=%d gps_chars=%lu gps_fix=%d sats=%u wifi=%lu ble=%lu lora_rx=%lu drops=%lu errors=%lu free_heap=%u mode=%s matches=%lu free_psram=%u quiet=%d min_internal=%u largest_internal=%u loop_stack=%u writer_stack=%lu ui_p95_ms=%lu ui_max_ms=%lu ui_samples=%lu upload=%d\n",
+  Serial.printf("LT STATUS version=%s target=%s uptime_ms=%lu ready=%d running=%d saving=%d sd=%d touch=%d lora=%d gps_chars=%lu gps_fix=%d sats=%u wifi=%lu ble=%lu lora_rx=%lu drops=%lu errors=%lu free_heap=%u mode=%s matches=%lu free_psram=%u quiet=%d min_internal=%u largest_internal=%u loop_stack=%u writer_stack=%lu ui_p95_ms=%lu ui_max_ms=%lu ui_samples=%lu upload=%d input_ok=%d cap_ok=%d init_writer=%d init_scanner=%d init_memory=%d scanner_stage=%s heap_hw=%lu heap_ui=%lu heap_config=%lu heap_before_scan=%lu\n",
     TUNNEL_VERSION,board::TARGET_ID,(unsigned long)millis(),ready,capturing.load(),stopping,storageReady(),hw::touchPresent(),loraReady(),gnssCharacters(),fix.valid,fix.satellites,
     (unsigned long)totals[0],(unsigned long)totals[1],(unsigned long)totals[2],
     (unsigned long)(counters.ingress_drops.load()+counters.log_drops.load()),
@@ -298,7 +313,8 @@ void serialStatus() {
     heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT),
     heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT),
     unsigned(uxTaskGetStackHighWaterMark(nullptr)),(unsigned long)loggerStackMargin(),
-    (unsigned long)ui::inputLatencyP95Ms(),(unsigned long)ui::inputLatencyMaxMs(),(unsigned long)ui::inputLatencySamples(),uploaderBusy());
+    (unsigned long)ui::inputLatencyP95Ms(),(unsigned long)ui::inputLatencyMaxMs(),(unsigned long)ui::inputLatencySamples(),uploaderBusy(),hw::inputReady(),hw::loraFrontendPresent(),initWriter,initScanner,initMemory,scannersInitStage(),
+    (unsigned long)heapAfterHardware,(unsigned long)heapAfterUi,(unsigned long)heapAfterConfig,(unsigned long)heapBeforeScanners);
 }
 void shutdownCancelled(const char* reason) {
   shutdownPending=false; model.shutting_down=false;
@@ -426,11 +442,13 @@ void serialCommands() {
 void setup() {
   Serial.begin(115200); // No wait for USB: standalone boot is mandatory.
   busMutex=xSemaphoreCreateMutex(); actions=xQueueCreate(4,sizeof(Action));
-  captureQueueStorage=static_cast<uint8_t*>(allocatePayload(board::CAPTURE_RECORDS*sizeof(Observation)));
-  if(captureQueueStorage) captureQueue=xQueueCreateStatic(board::CAPTURE_RECORDS,sizeof(Observation),captureQueueStorage,&captureQueueControl);
+  captureQueueStorage=static_cast<uint8_t*>(allocatePayload(board::CAPTURE_RECORDS*sizeof(CaptureObservation)));
+  if(captureQueueStorage) captureQueue=xQueueCreateStatic(board::CAPTURE_RECORDS,sizeof(CaptureObservation),captureQueueStorage,&captureQueueControl);
   if(!busMutex || !actions || !captureQueue) { Serial.println("Allocation failure; halted"); while(true) delay(1000); }
   const bool displayOK=hw::begin(); hardwareReady=displayOK;
+  heapAfterHardware=ESP.getFreeHeap();
   if(displayOK) { ui::begin(callback); gnssBegin(); }
+  heapAfterUi=ESP.getFreeHeap();
   const bool memoryOK=ESP.getFlashChipSize()==board::FLASH_BYTES && ESP.getPsramSize()==board::PSRAM_BYTES;
   if(displayOK && mountStorage()) {
     if(!loadConfig() && configLoadState==ConfigLoadState::Invalid)
@@ -439,8 +457,11 @@ void setup() {
     loadRegionPreference();
     strlcpy(model.notice,"No SD. Setup > Retry SD",sizeof(model.notice));
   }
+  heapAfterConfig=ESP.getFreeHeap();
   const bool writerOK=displayOK && loggerBegin();
+  heapBeforeScanners=ESP.getFreeHeap();
   const bool scannerOK=writerOK && scannersBegin();
+  initWriter=writerOK; initScanner=scannerOK; initMemory=memoryOK;
   uploaderBegin();
   ready=writerOK && scannerOK && memoryOK && displayOK && hw::inputReady();
   if(!writerOK) strlcpy(model.notice,"Writer allocation failed",sizeof(model.notice));
@@ -448,6 +469,8 @@ void setup() {
   else if(!displayOK) strlcpy(model.notice,"Hardware/display initialization failed",sizeof(model.notice));
   if(!memoryOK) strlcpy(model.notice,"Memory mismatch: verify target",sizeof(model.notice));
   if(!hw::inputReady()) strlcpy(model.notice,"Input hardware unavailable",sizeof(model.notice));
+  if(configAllocationFailed) strlcpy(model.notice,"Config memory unavailable; check SD",sizeof(model.notice));
+  else if(rulesLoadFailed) strlcpy(model.notice,"Custom rules failed; check SD file",sizeof(model.notice));
   if(!regionHardwareCompatible()) strlcpy(model.notice,"Region outside cap band; LoRa off",sizeof(model.notice));
   else if(config.lora_enabled && !hw::loraFrontendPresent()) strlcpy(model.notice,"U214 cap RF switch unavailable",sizeof(model.notice));
   Serial.printf("LORA Tunnel %s | flash %u | PSRAM %u | touch %s | SD %s\n",TUNNEL_VERSION,ESP.getFlashChipSize(),ESP.getPsramSize(),hw::touchPresent()?"OK":"missing",storageReady()?"OK":"missing");
@@ -471,8 +494,9 @@ void loop() {
     static bool endQueued=false;
     if(!endQueued) {
       drain();
-      Observation end; end.kind=Kind::Stop; end.mode=captureMode.load(); end.session=sessionId; end.gps=currentFix(); end.mono_ms=esp_timer_get_time()/1000;
-      endQueued=logObservation(end);
+      const CaptureMode mode=captureMode.load();
+      const uint32_t id=sessionId.load();
+      endQueued=logSessionMarker(Kind::Stop,mode,id);
     }
     if(endQueued && loggerIdle()) {
       stopping=false; endQueued=false;

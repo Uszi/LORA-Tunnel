@@ -6,9 +6,11 @@ The matching application source archive is a separate release asset.
 """
 import argparse
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 import zipfile
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 ENV = "heltec-v4-r8-tft"
@@ -16,6 +18,8 @@ LIBRARIES = ("ArduinoJson", "LovyanGFX", "NimBLE-Arduino", "RadioLib", "TinyGPSP
 CARDPUTER_ENV = "cardputer-adv-lora1262"
 CARDPUTER_LIBRARIES = ("ArduinoJson", "NimBLE-Arduino", "RadioLib", "TinyGPSPlus", "M5Cardputer", "M5Unified", "M5GFX", "IRremote")
 EXCLUDED_PARTS = {".git", ".github", "__pycache__", ".pio", ".pio-core"}
+CARDPUTER_BUILD_SCRIPTS = ("tools/cardputer_build.py", "tools/cardputer_linker.py", "tools/cardputer_linker_pio.py")
+CARDPUTER_LINKER_OUTPUTS = ("sections.ld", "report.json", "verification.json")
 
 
 def sha(data):
@@ -36,7 +40,40 @@ def files_below(folder):
         yield path, relative.as_posix()
 
 
-def collect(root, env=ENV):
+def cardputer_linker_entries(root, build):
+    """Recompute pinned policy and map assertions before archiving build evidence."""
+    directory = build / "cardputer_linker"
+    for name in CARDPUTER_LINKER_OUTPUTS:
+        path = directory / name
+        if not path.is_file():
+            raise FileNotFoundError("Missing verified Cardputer linker output: " + name)
+        if path.resolve() != path.absolute():
+            raise ValueError("Refusing a linked Cardputer build-evidence path")
+    spec = importlib.util.spec_from_file_location("cardputer_linker_package", root / "tools/cardputer_linker.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    sdk = root / ".pio-core/packages/framework-arduinoespressif32-libs/esp32s3"
+    objdump = root / ".pio-core/packages/toolchain-xtensa-esp-elf/bin/xtensa-esp32s3-elf-objdump"
+    if not objdump.is_file():
+        objdump = objdump.with_suffix(".exe")
+    with tempfile.TemporaryDirectory(prefix="lora-relink-evidence-") as temporary:
+        expected = Path(temporary)
+        report = module.generate(sdk, objdump, expected)
+        recorded = json.loads((directory / "report.json").read_bytes())
+        if report != recorded or (expected / "sections.ld").read_bytes() != (directory / "sections.ld").read_bytes():
+            raise ValueError("Cardputer linker output no longer matches the pinned source/build inputs")
+        verified = module.verify(expected, build / "firmware.map", build / "firmware.elf")
+        if verified != json.loads((directory / "verification.json").read_bytes()):
+            raise ValueError("Cardputer linker verification does not match the exact ELF/map")
+    entries = [("build-inputs/" + name, root / name) for name in CARDPUTER_BUILD_SCRIPTS]
+    entries.extend(("build-inputs/linker/cardputer/" + relative, path)
+                   for path, relative in files_below(root / "linker/cardputer"))
+    entries.extend(("build-metadata/cardputer_linker/" + name, directory / name)
+                   for name in CARDPUTER_LINKER_OUTPUTS)
+    return entries
+
+
+def collect(root, env=ENV, build=None):
     framework = root / ".pio-core/packages/framework-arduinoespressif32"
     meta = json.loads((framework / "package.json").read_text(encoding="utf-8"))
     if meta.get("version") != "3.3.12":
@@ -71,13 +108,19 @@ def collect(root, env=ENV):
         path = root / ".pio-core/packages" / package / "package.json"
         if path.is_file():
             entries.append(("build-metadata/" + package + ".json", path))
+    if env == CARDPUTER_ENV:
+        build = Path(build) if build is not None else root / ".pio/build" / env
+        entries.extend(cardputer_linker_entries(root, build))
     return sorted(entries)
 
 
-def application_hashes(root):
+def application_hashes(root, env=ENV):
     paths = [root / "platformio.ini"]
     for directory in ("src", "include", "lib", "boards"):
         paths.extend(path for path, _ in files_below(root / directory))
+    if env == CARDPUTER_ENV:
+        paths.extend(root / name for name in CARDPUTER_BUILD_SCRIPTS)
+        paths.extend(path for path, _ in files_below(root / "linker/cardputer"))
     paths.append(root / "assets/lora-tunnel-radio-logo.png")
     paths.append(root / "assets/vts-official-logo.png")
     return {path.relative_to(root).as_posix(): sha(path.read_bytes()) for path in sorted(paths)}
@@ -97,8 +140,8 @@ def package(args):
     output = args.output.resolve()
     if output.exists():
         raise FileExistsError("Refusing to overwrite an existing companion")
-    entries = collect(root, args.env)
     build = args.build.resolve() if args.build else root / ".pio/build" / args.env
+    entries = collect(root, args.env, build)
     firmware = {}
     for name in ("firmware.bin", "firmware.factory.bin", "bootloader.bin", "partitions.bin"):
         data = (build / name).read_bytes()
@@ -111,7 +154,7 @@ def package(args):
         "platform": "55.03.312-1",
         "sdk": "5.5.5+sha.b774170ff46",
         "matching_firmware": firmware,
-        "application_sources": application_hashes(root),
+        "application_sources": application_hashes(root, args.env),
         "files": {},
         "source_scope": "Installed Arduino core and the selected target's pinned library source packages; no SDK/toolchain binary mirror. Application source is supplied beside this companion.",
     }

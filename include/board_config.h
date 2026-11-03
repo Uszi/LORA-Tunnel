@@ -20,6 +20,8 @@ inline constexpr float LORA_MIN_MHZ = 868.0f;
 inline constexpr float LORA_MAX_MHZ = 923.0f;
 inline constexpr uint16_t CAPTURE_RECORDS = 12;
 inline constexpr uint16_t WRITER_RECORDS = 8;
+// HW4 measured 7,192 bytes used; retain >3 KiB margin for HW5 validation.
+inline constexpr uint32_t WRITER_STACK_BYTES = 10240;
 inline constexpr uint16_t MANAGEMENT_RESERVE = 2;
 inline constexpr uint16_t SUMMARY_RECORDS = 32;
 inline constexpr uint16_t DISPLAY_WIDTH = 240;
@@ -84,6 +86,7 @@ inline constexpr float LORA_MIN_MHZ = 863.0f;
 inline constexpr float LORA_MAX_MHZ = 928.0f;
 inline constexpr uint16_t CAPTURE_RECORDS = 48;
 inline constexpr uint16_t WRITER_RECORDS = 32;
+inline constexpr uint32_t WRITER_STACK_BYTES = 12288;
 inline constexpr uint16_t MANAGEMENT_RESERVE = 8;
 inline constexpr uint16_t SUMMARY_RECORDS = 64;
 

@@ -8,6 +8,25 @@ IRremote 4.5.0 and the common ArduinoJson/NimBLE/RadioLib/TinyGPSPlus libraries.
 Complete nested Adafruit keyboard and font sources/notices remain included.
 The preserved Heltec 0.3.0-beta.1 companion and binary are unchanged.
 
+Cardputer also includes project build scripts and the pinned ESP-IDF 5.5.5
+non-ISR placement policy under `build-inputs/`. The full application source
+archive contains the same `tools/cardputer_*.py` build hooks and `linker/cardputer/`
+policy directory. A normal complete Cardputer build regenerates
+`.pio/build/cardputer-adv-lora1262/cardputer_linker/sections.ld`, checks the exact
+SDK/archive/configuration hashes before linking, and verifies the resulting
+ELF/map placement afterward. The installed SDK files remain unchanged.
+
+Its matching companion retains the exact generated `sections.ld`, `report.json`,
+and `verification.json` under `build-metadata/cardputer_linker/`. These records
+use portable SDK/repository-relative names, hashes and archive/object/section
+identities. The report binds the source policy and build scripts; verification
+binds the generated script, report, ELF and map. Before creating the companion,
+the packaging tool regenerates the expected linker output in a temporary
+directory, compares it with the build evidence, and repeats the placement checks
+against that build's ELF/map. Missing, changed or mismatched evidence fails
+packaging. Do not copy these reports from a different build. The Heltec collector
+and historical companion continue to use their original SDK placement.
+
 LORA Tunnel's original application is MIT licensed. Its firmware also links
 Arduino-ESP32 and TinyGPSPlus under LGPL-2.1-or-later, alongside components
 under their own MIT, BSD, Apache and other licenses. The application's MIT

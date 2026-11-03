@@ -31,10 +31,18 @@ jobs:
         run: python -m platformio test -e native
       - name: Actual uploader lifecycle with offline transport and SD fixtures
         run: python tools/check_uploader.py
+      - name: Capture queue capacity and lossless record memory
+        run: python tools/check_capture_memory.py
+      - name: Configuration scratch lifetime and allocation failures
+        run: python tools/check_config_memory.py
+      - name: Complete logger evidence within the Cardputer JSON arena
+        run: python tools/check_logger_capacity.py
       - name: Compile the exact V4-R8 Expansion V2 target
         run: python -m platformio run -e heltec-v4-r8-tft
       - name: Compile Cardputer ADV with Cap LoRa-1262
         run: python -m platformio run -e cardputer-adv-lora1262
+      - name: Cardputer linker policy and real pinned SDK drift checks
+        run: python -m unittest discover -s tests -p test_cardputer_linker.py -v
       - name: Cardputer keyboard mapping against pinned upstream headers
         run: python tools/check_cardputer_keyboard.py
       - name: Validate Cardputer factory and Launcher application

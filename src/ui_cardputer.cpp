@@ -4,17 +4,13 @@
 #include "lora_profiles.h"
 #include "version.h"
 #include "credential_validation.h"
+#include "cardputer_logo_pixels.h"
 #include <Arduino.h>
 #include <esp_heap_caps.h>
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
-
-extern const uint8_t logoStart[] asm("_binary_assets_lora_tunnel_radio_logo_png_start");
-extern const uint8_t logoEnd[] asm("_binary_assets_lora_tunnel_radio_logo_png_end");
-extern const uint8_t vtsStart[] asm("_binary_assets_vts_official_logo_png_start");
-extern const uint8_t vtsEnd[] asm("_binary_assets_vts_official_logo_png_end");
 
 namespace {
 constexpr int WIDTH=240, HEIGHT=135;
@@ -27,9 +23,9 @@ constexpr const char* categories[]={"ALL","ALPR","FLOCK","BODYCAM","IBEACON","RI
 enum class Page { Home, Drive, Recon, Detail, Settings, Credentials, Edit, Regions, Power, Uploads };
 Page page=Page::Home, settingsParent=Page::Home;
 ui::Handler handler=nullptr;
-lgfx::LGFX_Sprite canvas, mark;
+lgfx::LGFX_Sprite canvas;
 void* pixels=nullptr;
-bool buffered=false, markReady=false, dirty=true, splashShown=false, onboarded=false;
+bool buffered=false, dirty=true, splashShown=false, onboarded=false;
 bool regionOnboarding=false;
 uint32_t splashAt=0, paintedAt=0;
 uint32_t inputAt=0, inputMaximum=0, latencySamples[64]{};
@@ -63,11 +59,24 @@ void footer(const char* keys,const ui::Model& m,bool notice=true) {
   label(keys,3,125,CYAN,39);
   if(notice && m.notice[0]) label(m.notice,3,110,AMBER,39);
 }
+// Draw flash pixels in same-color horizontal runs. The canvas stays 32400
+// bytes; no decompressor, image sprite, or temporary image allocation is used.
+void logo(int x,int y,unsigned width,unsigned height,const uint16_t* data) {
+  for(unsigned row=0;row<height;++row) {
+    for(unsigned start=0;start<width;) {
+      const uint16_t color=data[row*width+start];
+      unsigned end=start+1;
+      while(end<width && data[row*width+end]==color)++end;
+      gfx().drawFastHLine(x+int(start),y+int(row),int(end-start),color);
+      start=end;
+    }
+  }
+}
 void header(const char* title) {
   gfx().fillScreen(BG);
   label("LORA TUNNEL",4,3,GREEN,11,2);
   label(title,142,7,CYAN,12);
-  if(markReady) mark.pushSprite(&gfx(),220,0);
+  logo(220,0,cardputer_assets::vtsWidth,cardputer_assets::vtsHeight,cardputer_assets::vtsPixels);
   gfx().drawFastHLine(3,21,234,GREEN);
 }
 void status(const ui::Model& m) {
@@ -264,12 +273,7 @@ void render(const ui::Model& m) {
 }
 void splash() {
   header("ADV + U214");
-  const size_t size=logoEnd-logoStart;
-  if(size>24) {
-    const uint32_t w=(uint32_t(logoStart[16])<<24)|(uint32_t(logoStart[17])<<16)|(uint32_t(logoStart[18])<<8)|logoStart[19];
-    const uint32_t h=(uint32_t(logoStart[20])<<24)|(uint32_t(logoStart[21])<<16)|(uint32_t(logoStart[22])<<8)|logoStart[23];
-    if(w && h && w<=4096 && h<=4096)gfx().drawPng(logoStart,size,83,25,74,74,0,0,74.0f/std::max(w,h));
-  }
+  logo(83,25,cardputer_assets::radioWidth,cardputer_assets::radioHeight,cardputer_assets::radioPixels);
   label("WIFI + BLE + LORA",25,103,GREEN,20,2);
   label(TUNNEL_VERSION,4,125,MUTED,38);
 }
@@ -294,15 +298,7 @@ void begin(Handler onAction) {
   buffered=pixels!=nullptr;
   if(buffered) {canvas.setColorDepth(8);canvas.setBuffer(pixels,WIDTH,HEIGHT,8);}
   gfx().setFont(&lgfx::fonts::Font0);gfx().setTextWrap(false,false);
-  mark.setPsram(false);mark.setColorDepth(16);
-  if(mark.createSprite(19,20)) {
-    mark.fillScreen(0xffff);const size_t size=vtsEnd-vtsStart;
-    if(size>24) {
-      const uint32_t w=(uint32_t(vtsStart[16])<<24)|(uint32_t(vtsStart[17])<<16)|(uint32_t(vtsStart[18])<<8)|vtsStart[19];
-      const uint32_t h=(uint32_t(vtsStart[20])<<24)|(uint32_t(vtsStart[21])<<16)|(uint32_t(vtsStart[22])<<8)|vtsStart[23];
-      if(w && h && w<=4096 && h<=4096)markReady=mark.drawPng(vtsStart,size,0,0,19,20,0,0,std::min(19.0f/w,20.0f/h));
-    }
-  }
+
 }
 void navigation(uint8_t,const Model&) {} // Cardputer keyboard is the primary input.
 void keyboard(const input::KeyEvent& event,const Model& model) {

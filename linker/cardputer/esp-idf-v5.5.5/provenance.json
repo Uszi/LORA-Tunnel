@@ -1,0 +1,39 @@
+{
+  "schema": 1,
+  "idf_version": "5.5.5",
+  "sdk_package_version": "5.5.5+sha.b774170ff46",
+  "license": "Apache-2.0",
+  "sources": {
+    "freertos.lf": {
+      "url": "https://raw.githubusercontent.com/espressif/esp-idf/v5.5.5/components/freertos/linker.lf",
+      "sha256": "27c683a2708c17f2bbaefe8fced5af23c498ee35445df46e1e7852ebdda406cc"
+    },
+    "esp_ringbuf.lf": {
+      "url": "https://raw.githubusercontent.com/espressif/esp-idf/v5.5.5/components/esp_ringbuf/linker.lf",
+      "sha256": "a5e2d2ca837f14cc0218711177663f66a3392de811aafcbd2747adda9c7a7c65"
+    }
+  },
+  "sdk_inputs": {
+    "qio_qspi/sections.ld": "83c65e5d0ed2ad762e18525796b7ea87558bd235642bc7d9841f531425843c79",
+    "qio_qspi/libfreertos.a": "676526d42808947c19e1551ae30e2ad09406b824ce96ad4a118e4435cac78dd2",
+    "lib/libesp_ringbuf.a": "16b591f168c1f496e29eadf437442cc3b286ed5dedecf3c0cfa316979e23563a",
+    "qio_qspi/include/sdkconfig.h": "f44c8812a67ab0c3c25704efd4aac3be2389119c65fc6179349aa7475a8405fa",
+    "sdkconfig": "79f52b47be15e15cab9d54509c8e8411d28f60b8d056753f4b8503bccd7f03c5"
+  },
+  "policy": {
+    "FREERTOS_PLACE_FUNCTIONS_INTO_FLASH": "y",
+    "FREERTOS_PLACE_ISR_FUNCTIONS_INTO_FLASH": "n",
+    "RINGBUF_PLACE_FUNCTIONS_INTO_FLASH": "y",
+    "RINGBUF_PLACE_ISR_FUNCTIONS_INTO_FLASH": "n"
+  },
+  "archive_inventory": {
+    "libfreertos.a": {
+      "sha256": "a5e30e6a2cd38f4b54b9256b15fd2f5a7385337cf501a9fb678a38430477fc4a",
+      "sections": 487
+    },
+    "libesp_ringbuf.a": {
+      "sha256": "1c7191c7a320a89322931b330a5848ca12def3463f361043bc161985c4545c9e",
+      "sections": 84
+    }
+  }
+}

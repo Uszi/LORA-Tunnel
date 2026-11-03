@@ -18,6 +18,13 @@ QueueHandle_t queue = nullptr;
 StaticQueue_t queueControl;
 uint8_t* queueStorage=nullptr;
 constexpr UBaseType_t QUEUE_RECORDS=board::WRITER_RECORDS;
+#if defined(LORA_TUNNEL_CARDPUTER_ADV)
+// IDF preallocates a 4136-byte FIL for each slot. Uploads peak at two
+// regular files; directory handles are separate. The host adapter checks this.
+constexpr uint8_t SD_FILE_SLOTS=2;
+#else
+constexpr uint8_t SD_FILE_SLOTS=5;
+#endif
 TaskHandle_t writerTask=nullptr;
 std::atomic<bool> mounted{false}, openSession{false}, busy{false};
 File sessionFile;
@@ -25,7 +32,13 @@ uint32_t sequence=0, fileSession=0;
 char buffer[8192];
 size_t used=0;
 uint32_t bufferedRecords=0;
+// Full raw Wi-Fi plus maximum Recon/Remote ID evidence uses 3084 bytes on
+// the 32-bit target; tools/check_logger_capacity.py proves the 4096-byte bound.
+#if defined(LORA_TUNNEL_CARDPUTER_ADV)
+StaticJsonDocument<4096> record;
+#else
 StaticJsonDocument<8192> record;
+#endif
 
 void fault() {
   ++counters.storage_errors;
@@ -221,7 +234,15 @@ void task(void*) {
           char path[64]; snprintf(path,sizeof(path),"/sessions/LT-%08lx.jsonl",(unsigned long)event.session);
           // Never append a new session to an old file, even on a rare ID collision.
           if (SD.exists(path)) fault();
-          else { sessionFile=SD.open(path,FILE_WRITE); if (!sessionFile) fault(); }
+          else {
+            sessionFile=SD.open(path,FILE_WRITE);
+            if (!sessionFile) fault();
+#if defined(LORA_TUNNEL_CARDPUTER_ADV)
+            // Keep the 8 KiB writer batch and FAT sector cache; bound only
+            // Arduino's additional per-file stdio buffer (default 4 KiB).
+            else if (!sessionFile.setBufferSize(512)) fault();
+#endif
+          }
         }
         xSemaphoreGive(busMutex);
       }
@@ -246,7 +267,7 @@ void task(void*) {
 bool mountStorage() {
   // Call only before tasks start, or while stopped and loggerIdle().
   SD.end();
-  const bool ok=SD.begin(board::SD_CS,hw::peripheralSpi(),board::SD_SPI_HZ);
+  const bool ok=SD.begin(board::SD_CS,hw::peripheralSpi(),board::SD_SPI_HZ,"/sd",SD_FILE_SLOTS);
   mounted=ok && SD.cardType()!=CARD_NONE && SD.mkdir("/sessions");
   if (!mounted) ++counters.storage_errors;
   return mounted;
@@ -261,7 +282,7 @@ bool loggerBegin() {
   queue=xQueueCreateStatic(QUEUE_RECORDS,sizeof(Observation),queueStorage,&queueControl);
   if(!queue) { heap_caps_free(queueStorage); queueStorage=nullptr; return false; }
   // ESP-IDF's task stack argument is bytes, not vanilla FreeRTOS words.
-  if(xTaskCreatePinnedToCore(task,"sd-writer",12288,nullptr,1,&writerTask,0)!=pdPASS) {
+  if(xTaskCreatePinnedToCore(task,"sd-writer",board::WRITER_STACK_BYTES,nullptr,1,&writerTask,0)!=pdPASS) {
     vQueueDelete(queue); queue=nullptr;
     heap_caps_free(queueStorage); queueStorage=nullptr;
     return false;

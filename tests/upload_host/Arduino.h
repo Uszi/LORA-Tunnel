@@ -8,6 +8,8 @@
 #include <map>
 #include <memory>
 #include <algorithm>
+#include <set>
+#include <stdexcept>
 extern uint32_t hostMillis;
 inline uint32_t millis(){return hostMillis;}
 inline size_t strlcpy(char* out,const char* source,size_t cap){size_t n=std::strlen(source);if(cap){size_t copy=std::min(n,cap-1);std::memcpy(out,source,copy);out[copy]=0;}return n;}
@@ -21,5 +23,5 @@ inline void vTaskDelay(uint32_t n){hostMillis+=n;}
 inline void taskYIELD(){}
 struct HostTaskFinished{};
 inline void vTaskDelete(void*){throw HostTaskFinished{};}
-namespace host {extern void(*task)(void*);extern void* taskArg;}
-inline int xTaskCreatePinnedToCore(void(*fn)(void*),const char*,int,void* arg,int,void*,int){host::task=fn;host::taskArg=arg;return pdPASS;}
+namespace host {extern void(*task)(void*);extern void* taskArg;extern bool createTask;}
+inline int xTaskCreatePinnedToCore(void(*fn)(void*),const char*,int,void* arg,int,void*,int){if(!host::createTask)return 0;host::task=fn;host::taskArg=arg;return pdPASS;}

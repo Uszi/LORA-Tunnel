@@ -7,7 +7,7 @@ from pathlib import Path
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
-FOLDERS = ("boards", "docs", "include", "lib", "schemas", "src", "test", "tests",
+FOLDERS = ("boards", "docs", "include", "lib", "linker", "schemas", "src", "test", "tests",
            "third_party", "tools", "web", "assets/ui", ".github")
 FILES = ("README.md", "LICENSE", "platformio.ini", ".gitignore", ".gitattributes", "sdcard/README.md",
          "assets/IMAGEGEN.md", "assets/lora-tunnel-radio-logo.png", "assets/vts-official-logo.png",

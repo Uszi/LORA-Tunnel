@@ -53,17 +53,20 @@ class FakeSerial:
 
 
 class BenchSerialTests(unittest.TestCase):
-    def exercise(self, command="status", seconds=3, responder=lambda command, count: status(), initial=b""):
+    def exercise(self, command="status", seconds=3, responder=lambda command, count: status(), initial=b"", **options):
         clock = FakeClock()
         connection = FakeSerial(clock, responder, initial)
         output = []
         result = bench.run_bench(connection, command, seconds, clock=clock.monotonic,
-                                 sleep=clock.sleep, emit=output.append)
+                                 sleep=clock.sleep, emit=output.append, **options)
         return result, connection, "\n".join(output)
 
     def test_optional_cardputer_metrics_are_allowlisted_and_validated(self):
         fields=dict(target="cardputer-adv-lora1262",min_internal=40000,largest_internal=20000,
-                    loop_stack=2048,writer_stack=2048,ui_p95_ms=40,ui_max_ms=80,upload=0)
+                    loop_stack=2048,writer_stack=2048,ui_p95_ms=40,ui_max_ms=80,upload=0,
+                    input_ok=1,cap_ok=1,init_writer=1,init_scanner=1,init_memory=1,
+                    scanner_stage="ble_init",heap_hw=150000,heap_ui=110000,
+                    heap_config=108000,heap_before_scan=80000)
         result,_,output=self.exercise(responder=lambda *_: status(**fields,untrusted="private"))
         self.assertEqual(result,0)
         self.assertIn("min_internal=40000",output)
@@ -71,6 +74,10 @@ class BenchSerialTests(unittest.TestCase):
         self.assertNotIn("private",output)
         self.assertIsNone(bench.parse_status(status(**dict(fields,ui_max_ms=-1)).decode().strip()))
         self.assertIsNone(bench.parse_status(status(**dict(fields,upload=2)).decode().strip()))
+        self.assertIn("scanner_stage=ble_init",output)
+        self.assertIsNone(bench.parse_status(status(**dict(fields,input_ok=2)).decode().strip()))
+        self.assertIsNone(bench.parse_status(status(**dict(fields,scanner_stage="invalid/value")).decode().strip()))
+        self.assertIsNone(bench.parse_status(status(**dict(fields,heap_hw=-1)).decode().strip()))
 
     def test_silent_device_fails_even_with_stale_buffered_status(self):
         result, connection, output = self.exercise(responder=lambda *_: b"", initial=status())
@@ -147,6 +154,75 @@ class BenchSerialTests(unittest.TestCase):
         result, _, output = self.exercise(responder=lambda _, count: status(uptime_ms=10000 if count == 1 else 20))
         self.assertNotEqual(result, 0)
         self.assertIn("uptime decreased", output)
+
+
+    def test_watchdog_trigger_fails_but_benign_watchdog_text_does_not(self):
+        for diagnostic in (b"E (13) task_wdt: Task watchdog got triggered.",
+                           b"E (13) task_wdt: Aborting.", b"Interrupt wdt timeout on CPU0"):
+            result, _, output = self.exercise(responder=lambda *_, d=diagnostic: d + b"\n" + status())
+            self.assertNotEqual(result, 0)
+            self.assertIn("device watchdog diagnostic", output)
+        result, _, _ = self.exercise(responder=lambda *_: b"watchdog enabled; task_wdt: initialized\n" + status())
+        self.assertEqual(result, 0)
+
+    def test_strict_intermediate_gap_fails_even_if_device_would_recover(self):
+        observation = {}
+        result, connection, _ = self.exercise(seconds=15, strict=True, observation=observation,
+            responder=lambda _, n: b"" if 2 <= n < 9 else status(uptime_ms=n * 1000))
+        self.assertNotEqual(result, 0)
+        self.assertLess(len(connection.writes), 9)
+        self.assertGreater(observation["max_status_gap_seconds"], bench.STATUS_MAX_AGE_SECONDS)
+
+    def test_strict_malformed_oversize_and_partial_required_status_fail(self):
+        for raw in (b"LT STATUS ready=broken\n", b"LT STATUS secret=" + b"x" * 5000 + b"\n",
+                    b"LT STATUS version=0.4.0"):
+            result, _, output = self.exercise(seconds=3, strict=True,
+                responder=lambda _, n, raw=raw: status(uptime_ms=n * 1000) if n == 1 else raw)
+            self.assertNotEqual(result, 0)
+            self.assertNotIn("secret=", output)
+        # Required public fields must be valid even when the rest is complete.
+        result, _, _ = self.exercise(strict=True, responder=lambda *_: status(mode="unknown"))
+        self.assertNotEqual(result, 0)
+
+    def test_strict_constant_uptime_fails_and_valid_timestamped_callbacks_pass(self):
+        result, _, _ = self.exercise(strict=True)
+        self.assertNotEqual(result, 0)
+        samples, observation = [], {}
+        result, _, output = self.exercise(strict=True, observation=observation,
+            on_status=lambda sample, elapsed: samples.append((sample, elapsed)),
+            responder=lambda _, n: status(uptime_ms=n * 1000, mode="wardriver", matches=n, secret="PRIVATE"))
+        self.assertEqual(result, 0)
+        self.assertEqual(observation["valid_status"], len(samples))
+        self.assertGreaterEqual(observation["elapsed_seconds"], 3)
+        self.assertNotIn("LT STATUS", output)
+        self.assertNotIn("PRIVATE", str(samples))
+        self.assertEqual(samples[-1][0]["mode"], "wardriver")
+        self.assertTrue(all(b[1] > a[1] for a, b in zip(samples, samples[1:])))
+
+    def test_disconnect_short_write_and_interrupt_return_failure(self):
+        class BrokenSerial(FakeSerial):
+            def read(self, size):
+                raise OSError("private USB details")
+        class ShortSerial(FakeSerial):
+            def write(self, command):
+                return len(command) - 1
+        class InterruptedSerial(FakeSerial):
+            def read(self, size):
+                raise KeyboardInterrupt
+        for kind in (BrokenSerial, ShortSerial, InterruptedSerial):
+            clock, output, observation = FakeClock(), [], {}
+            connection = kind(clock, lambda *_: status())
+            result = bench.run_bench(connection, "status", 3, strict=True,
+                clock=clock.monotonic, sleep=clock.sleep, emit=output.append, observation=observation)
+            self.assertNotEqual(result, 0)
+            self.assertEqual(observation["result"], result)
+            self.assertNotIn("private USB", str(output))
+
+    def test_strict_status_flood_is_bounded(self):
+        result, _, output = self.exercise(seconds=3, strict=True,
+            responder=lambda *_: b"".join(status(uptime_ms=n) for n in range(1, 30)))
+        self.assertNotEqual(result, 0)
+        self.assertIn("bounded observation limit", output)
 
 
 if __name__ == "__main__":

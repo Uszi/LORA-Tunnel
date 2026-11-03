@@ -18,7 +18,7 @@ void textKey(char c,ui::Model& model) {key(input::KeyCode::Text,model,c);}
 std::string quote(const std::string& text) {std::string out="\"";for(char c:text){if(c=='\\'||c=='\"')out+='\\';out+=c;}return out+'\"';}
 void capture(const char* directory,const char* name,ui::Model& model,bool repaint=true) {
   if(repaint) {dirty=true;hw::display().commands.clear();ui::tick(model);}
-  std::ofstream out(std::string(directory)+"/"+name+".json");out<<"[";bool first=true;
+  std::ofstream out(std::string(directory)+"/"+name+".json",std::ios::binary);out<<"[";bool first=true;
   for(const auto& c:hw::display().commands){if(!first)out<<",";first=false;
     out<<"{\"kind\":"<<quote(c.kind)<<",\"text\":"<<quote(c.text)<<",\"x\":"<<c.x<<",\"y\":"<<c.y<<",\"w\":"<<c.w<<",\"h\":"<<c.h<<",\"r\":"<<c.r<<",\"color\":"<<c.color<<",\"scale\":"<<c.scale<<"}";}
   out<<"]\n";expect(bool(out),"preview command file written");
@@ -31,6 +31,8 @@ int main(int argc,char** argv) {
   ui::begin(callback);ui::tick(model);
   capture(output,"splash",model,false);
   expect(buffered,"32.4 KB RGB332 framebuffer allocated");
+  expect(hostAllocationBytes==32400,"framebuffer remains exactly 32400 bytes");
+  expect(hostAllocationCount==1,"logos require no additional UI heap allocation");
   textKey('w',model);expect(page==Page::Home,"boot splash ignores early input");
   hostMillis=1200;ui::tick(model);expect(page==Page::Regions,"first boot selects region");capture(output,"regions",model);
   key(input::KeyCode::Back,model);expect(page==Page::Home,"Esc skips onboarding");

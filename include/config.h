@@ -20,7 +20,9 @@ struct Config {
   char wigle_name[128]{}, wigle_token[128]{}, wdgwars_token[128]{}, wardrift_token[128]{};
 };
 extern Config config;
-extern Rule rules[64];
+// Exact-sized validated custom rule set (at most 64); null for an empty set.
+extern Rule* rules;
+extern bool configAllocationFailed, rulesLoadFailed;
 extern size_t ruleCount;
 bool loadConfig(); // Caller owns SPI mutex, SD already mounted.
 enum class ConfigLoadState : uint8_t { Missing, Primary, Backup, Invalid, Nvs };

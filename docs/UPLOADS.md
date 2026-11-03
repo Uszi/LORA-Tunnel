@@ -39,7 +39,27 @@ timeouts; physical cancellation responsiveness still needs measurement.
 **Cancel upload** requests cancellation. Starting capture or confirming sleep
 also requests cancellation and waits for the worker to release network/storage
 ownership. A request already received by a server cannot be recalled. Device
-status distinguishes an uncertain receipt from an accepted upload.
+status distinguishes an uncertain receipt from an accepted upload. Cancel also
+clears pending retries for the current idle period, including retries scheduled
+during a result-checkpoint write. Leaving the Uploads page after cancellation
+does not restart the worker. Enabled services become eligible again after a
+later capture is stopped, a configuration change, a manual request, or reboot.
+
+On Cardputer, the upload worker releases the BLE host/controller before its
+large parsing/TLS allocations and restores the passive scanner after closing
+all HTTP/files and freeing upload buffers. Start cancels upload and waits for
+restoration; a failed restoration blocks capture before a session is opened.
+Heltec keeps its existing BLE lifetime. Each Cardputer BLE transition has an
+independent 15-second recovery timer, armed only at stopped/saved boundaries.
+A timeout emits an explicit nonsecret `LT BLE transition_timeout=... failed=1`
+diagnostic and restarts into idle operation with checkpoints/config retained.
+Exercising that timer is failed hardware acceptance, never a successful upload
+or restoration. The 16 KiB worker stack must still fit before BLE can be released;
+worker creation failure remains visible and sends no data. Cardputer uploader
+files use checked 512-byte stdio buffers. Opening a file fails cleanly if that
+buffer cannot be configured; offline fixtures enforce the two-regular-file
+ceiling across success, retry, cancellation and checkpoint failure paths.
+Directory handles are counted separately by the filesystem.
 
 ## What is eligible
 

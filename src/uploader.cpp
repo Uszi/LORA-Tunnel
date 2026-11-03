@@ -1,4 +1,5 @@
 #include "uploader.h"
+#include "scanners.h"
 #include "upload_csv.h"
 #include "upload_protocol.h"
 #include "credential_validation.h"
@@ -41,8 +42,16 @@ void status(const char* text){portENTER_CRITICAL(&statusMux);strlcpy(statusText,
 void serviceStatus(int service,const char* text){char line[64];snprintf(line,sizeof(line),"%s: %s",names[service],text);status(line);}
 bool stopped(){return cancelled.load(std::memory_order_relaxed);}
 bool delayUntil(uint32_t duration){const uint32_t start=millis();while(millis()-start<duration){if(stopped())return false;vTaskDelay(pdMS_TO_TICKS(50));}return true;}
+// Keep Cardputer's stdio cache bounded; every caller already owns StorageLock.
+File openFile(const char* path,const char* mode=FILE_READ) {
+  File file=SD.open(path,mode);
+#if defined(LORA_TUNNEL_CARDPUTER_ADV)
+  if(file&&!file.isDirectory()&&!file.setBufferSize(512))file.close();
+#endif
+  return file;
+}
 void closeFile(File& file){StorageLock lock;if(file)file.close();}
-bool fileSize(const char* path,size_t& size){StorageLock lock;File file=SD.open(path,FILE_READ);if(!file)return false;size=file.size();file.close();return true;}
+bool fileSize(const char* path,size_t& size){StorageLock lock;File file=openFile(path,FILE_READ);if(!file)return false;size=file.size();file.close();return true;}
 unsigned enabled(const Config& settings){return (settings.auto_wigle?1U:0U)|(settings.auto_wardrift?2U:0U)|(settings.auto_wdgwars?4U:0U);}
 bool credentials(const Config& c,int service) {
   if(!c.wifi_name[0]||!validCredential(3,c.wifi_name)||!validCredential(4,c.wifi_password))return false;
@@ -67,7 +76,7 @@ int readLine(File& file,char* line,size_t capacity) {
   line[used]=0;if(!any)return 0;return overflow?-1:int(used);
 }
 bool closedSession(const char* path,char digest[65],size_t& bytes,char* buffer,DynamicJsonDocument& doc) {
-  File file;{StorageLock lock;file=SD.open(path,FILE_READ);if(!file)return false;bytes=file.size();}
+  File file;{StorageLock lock;file=openFile(path,FILE_READ);if(!file)return false;bytes=file.size();}
   if(bytes<2){closeFile(file);return false;}
   const int first=readLine(file,buffer,LineCapacity);
   bool ok=first>0&&!deserializeJson(doc,buffer)&&upload::integer(doc["schema"],1,1)&&
@@ -107,7 +116,7 @@ bool loadCheckpoint(const char* directory,int service,int chunk,const char* hash
   result=Checkpoint{};bool found=false,existed=false;
   for(unsigned slot=0;slot<2;++slot) {
     char path[144];checkpointPath(path,directory,service,chunk,slot);StaticJsonDocument<1024> doc;
-    StorageLock lock;existed=existed||SD.exists(path);File file=SD.open(path,FILE_READ);if(!file)continue;
+    StorageLock lock;existed=existed||SD.exists(path);File file=openFile(path,FILE_READ);if(!file)continue;
     const bool ok=file.size()<=1024&&!deserializeJson(doc,file);file.close();
     if(!ok||!doc["generation"].is<uint32_t>()||strcmp(doc["sha256"]|"",hash)||doc["source_bytes"].as<size_t>()!=bytes)continue;
     const char* state=doc["state"]|"";if(!*state||strlen(state)>=sizeof(result.state))continue;
@@ -127,7 +136,7 @@ bool saveCheckpoint(const char* directory,int service,int chunk,const char* hash
   doc["epoch"]=cp.epoch;
   char path[144];checkpointPath(path,directory,service,chunk,(cp.generation+1)&1U);
   bool ok;
-  {StorageLock lock;File file=SD.open(path,FILE_WRITE);if(!file)return false;
+  {StorageLock lock;File file=openFile(path,FILE_WRITE);if(!file)return false;
     const size_t expected=measureJson(doc);ok=serializeJson(doc,file)==expected;file.flush();ok=ok&&!file.getWriteError();file.close();}
   Checkpoint verified;ok=ok&&loadCheckpoint(directory,service,chunk,hash,bytes,verified)&&verified.generation==cp.generation+1&&
     !strcmp(verified.state,cp.state)&&!strcmp(verified.job,cp.job)&&verified.attempts==cp.attempts;
@@ -173,7 +182,7 @@ Response requestHttp(const Work& work,int service,const char* csv,const char* fi
   const uint32_t started=millis();bool ok=!stopped()&&esp_http_client_open(client,int(bytes+strlen(prefix)+strlen(suffix)))==ESP_OK;
   if(ok&&!poll) {
     ok=writeHttp(client,prefix,strlen(prefix),response,started);File file;
-    {StorageLock lock;file=SD.open(csv,FILE_READ);}if(!file)ok=false;
+    {StorageLock lock;file=openFile(csv,FILE_READ);}if(!file)ok=false;
     char block[1024];size_t sent=0;
     while(ok&&sent<bytes) {
       size_t got;{StorageLock lock;got=file.read(reinterpret_cast<uint8_t*>(block),std::min(sizeof(block),bytes-sent));}
@@ -255,7 +264,7 @@ bool processChunk(const Work& work,const char* directory,const char* hash,size_t
 }
 bool writeCsv(File& file,const char* data,size_t size){StorageLock lock;return file.write(reinterpret_cast<const uint8_t*>(data),size)==size&&!file.getWriteError();}
 bool stageHeader(File& file) {
-  {StorageLock lock;if(SD.exists(staging))SD.remove(staging);file=SD.open(staging,FILE_WRITE);}
+  {StorageLock lock;if(SD.exists(staging))SD.remove(staging);file=openFile(staging,FILE_WRITE);}
   if(!file)return false;char first[240];
   snprintf(first,sizeof(first),"WigleWifi-1.6,appRelease=LORA-Tunnel-%s,model=%s,release=%s,device=LORA-Tunnel,display=keyboard,board=%s,brand=Valleytech\n",TUNNEL_VERSION,board::TARGET_ID,TUNNEL_VERSION,board::TARGET_ID);
   return writeCsv(file,first,strlen(first))&&writeCsv(file,upload::CsvColumns,strlen(upload::CsvColumns));
@@ -277,7 +286,7 @@ void processSession(const Work& work,const char* path,char* line,char* row,Dynam
     Checkpoint budget;loadCheckpoint(directory,service,-1,hash,bytes,budget);budget.boot=bootId;budget.attempts=0;budget.retryAt=0;budget.epoch=work.epoch;
     if(!saveCheckpoint(directory,service,-1,hash,bytes,budget)){status("SD checkpoint failed");return;}
   }
-  File source,out;{StorageLock lock;source=SD.open(path,FILE_READ);}if(!source)return;
+  File source,out;{StorageLock lock;source=openFile(path,FILE_READ);}if(!source)return;
   if(!stageHeader(out)){closeFile(source);closeFile(out);status("Cannot stage upload CSV on SD");return;}
   unsigned chunk=0,rows=0;size_t chunkBytes;{StorageLock lock;chunkBytes=out.size();}
   bool ok=true;
@@ -310,15 +319,30 @@ void processSession(const Work& work,const char* path,char* line,char* row,Dynam
 }
 void worker(void* argument) {
   Work* work=static_cast<Work*>(argument);
-  char* line=static_cast<char*>(malloc(LineCapacity));char* row=static_cast<char*>(malloc(upload::CsvRowCapacity));
-  DynamicJsonDocument* doc=new(std::nothrow) DynamicJsonDocument(4096);
-  bool ok=line&&row&&doc&&doc->capacity()>=4096;
-  if(!ok)status("Upload memory unavailable; try after restart");
-  if(ok){StorageLock lock;ok=SD.mkdir(root);}if(!ok)status("Upload staging unavailable");
+  bool radioReady=true;
+#if defined(LORA_TUNNEL_CARDPUTER_ADV)
+  // Release BLE before the CSV/JSON buffers and TLS allocations. Busy already
+  // owns the idle radio interval, so Start can only request cancellation.
+  radioReady=false;
+  if(!stopped()) {
+    status("Releasing BLE memory for upload");
+    radioReady=scannersPauseBleForUpload();
+    if(!radioReady) status("BLE pause failed; upload deferred");
+  }
+#endif
+  char* line=nullptr;char* row=nullptr;DynamicJsonDocument* doc=nullptr;
+  bool ok=radioReady&&!stopped();
+  if(ok) {
+    line=static_cast<char*>(malloc(LineCapacity));row=static_cast<char*>(malloc(upload::CsvRowCapacity));
+    doc=new(std::nothrow) DynamicJsonDocument(4096);
+    ok=line&&row&&doc&&doc->capacity()>=4096;
+    if(!ok)status("Upload memory unavailable; try after restart");
+  }
+  if(ok) {StorageLock lock;ok=SD.mkdir(root);if(!ok)status("Upload staging unavailable");}
   if(ok)ok=associate(*work);
   if(ok) {
     associationFailures=0;
-    File directory;{StorageLock lock;directory=SD.open("/sessions");}
+    File directory;{StorageLock lock;directory=openFile("/sessions");}
     if(!directory)status("No completed sessions available");
     while(directory&&!stopped()) {
       char path[100]{};bool isFile=false;
@@ -329,19 +353,40 @@ void worker(void* argument) {
       if(isFile&&n>6&&!strcmp(path+n-6,".jsonl"))processSession(*work,path,line,row,*doc);
     }
     closeFile(directory);
-  } else if(!stopped()) {
+  } else if(radioReady&&!stopped()) {
     const unsigned failures=associationFailures.fetch_add(1)+1;
     if(failures<3)for(int service=0;service<3;++service)if(work->mask&(1U<<service))scheduleRetry(service,upload::retryDelay(failures));
   }
   WiFi.disconnect(false,false);
   if(stopped())status("Upload cancelled; local logs retained");
   free(line);free(row);delete doc;memset(&work->settings,0,sizeof(work->settings));delete work;
+#if defined(LORA_TUNNEL_CARDPUTER_ADV)
+  if(radioReady) {
+    // All HTTP handles, files and large buffers are gone before restoring BLE.
+    // Keep busy set through restoration, including cancellation and failures.
+    char completion[sizeof(statusText)];uploaderStatus(completion,sizeof(completion));
+    status("Restoring BLE scanner");
+    if(scannersRestoreBleAfterUpload())status(completion);
+    else status("BLE restore failed; restart before capture");
+  }
+#endif
+  // A cancellation can arrive while a checkpoint write is in progress, before
+  // that path re-arms a retry. After all scheduling and restoration have ended,
+  // clear any such retry while busy still prevents a new worker/reset. This
+  // sequentially consistent read orders against uploaderCancel: a later cancel
+  // clears the state itself, with no worker scheduling left to race against it.
+  if(cancelled.load()) { retryMask=0;nextRetry=0; }
   busy=false;vTaskDelete(nullptr);
 }
 }
 bool uploaderBegin(){bootId=esp_random();initialPending=true;Preferences prefs;if(prefs.begin("lt-upload",true)){settingsEpoch=prefs.getUInt("epoch",1);prefs.end();}return true;}
 bool uploaderBusy(){return busy.load();}
-void uploaderCancel(){cancelled=true;requests=0;retryMask=0;nextRetry=0;initialPending=false;}
+void uploaderCancel(){
+  cancelled=true;requests=0;retryMask=0;nextRetry=0;initialPending=false;
+  // Consume this idle-entry trigger even if a settings page delayed automatic
+  // scheduling. A subsequent capture/non-idle tick enables the next idle entry.
+  wasIdle=true;
+}
 void uploaderStatus(char* destination,size_t capacity){if(!destination||!capacity)return;portENTER_CRITICAL(&statusMux);strlcpy(destination,statusText,capacity);portEXIT_CRITICAL(&statusMux);}
 void uploaderConfigChanged(){
   Preferences prefs;if(prefs.begin("lt-upload",false)){const uint32_t next=settingsEpoch+1;if(prefs.putUInt("epoch",next)==sizeof(next))settingsEpoch=next;prefs.end();}

@@ -50,6 +50,34 @@ Use [the controls guide](CARDPUTER_ADV.md), [upload guide](UPLOADS.md), and
    Software sleep does not disconnect the battery or guarantee GNSS power-off.
    Wait for or cancel uploads before removing the card or power-cycling.
 
+## Offline SD readback
+
+After Stop has saved completely and uploads are finished or cancelled, power
+down and use the PC's microSD reader to copy the selected native
+`/sessions/LT-*.jsonl` files into a private directory. Retain the original files
+and validate the copies offline, for example:
+
+```sh
+python tools/check_session_readback.py private/readback/session.jsonl --expected-target cardputer-adv-lora1262 --expected-version 0.4.0-beta.1
+```
+
+Replace the example path with the copied session; multiple file paths are
+accepted. The tool checks the production schema, one matching start/end pair,
+contiguous sequence numbers, session/mode/board/version consistency, retained
+raw lengths, and GNSS freshness rules. It fails on malformed or partial records.
+For a session deliberately containing the corresponding test evidence, add
+`--min-lora-records 1` and/or `--min-fresh-gps-records 1`. Each minimum applies to
+**every supplied session**, so validate different test scenarios separately.
+A structurally valid session alone does not prove LoRa reception, RF losslessness,
+GNSS accuracy or origin; inspect the known-source evidence privately as well.
+
+The JSON report includes aggregate counts, line numbers, fixed error codes and
+schema locations, without input paths, record values, captured identifiers or
+coordinates. Direct capture files and original diagnostic logs must remain
+private: never commit or publish them with firmware/source/relink packages.
+Publish only a reviewed, sanitized acceptance summary. The validator makes no
+device or network connection and does not upload the copied data.
+
 ## Storage and absent-hardware checks
 
 Use disposable test data/cards for fault cases. Test boot without SD, Retry SD,

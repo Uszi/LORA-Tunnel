@@ -1,6 +1,7 @@
 #pragma once
 #include <Arduino.h>
 #include <atomic>
+#include <type_traits>
 #include "recon.h"
 
 namespace tunnel {
@@ -17,8 +18,9 @@ struct Fix {
   uint16_t satellites = 0;
   char utc[24]{};
 };
-// Fixed-size queue payload. No pointers, heap strings, or allocation in callbacks.
-struct Observation {
+// Callback/ingress payload. Classification happens only after dequeue, so its
+// result is not reserved in each ingress slot. No allocation in callbacks.
+struct CaptureObservation {
   Kind kind = Kind::Wifi;
   CaptureMode mode = CaptureMode::Wardriver;
   uint32_t session = 0;
@@ -35,9 +37,14 @@ struct Observation {
   uint16_t original_length = 0;
   uint16_t ble_adv_length = 0;
   uint8_t ssid_length = 0, ssid_raw[32]{};
-  recon::Result detection;
   uint8_t raw[RAW_MAX]{};
 };
+// The writer retains the complete classified evidence, including Remote ID.
+struct Observation : CaptureObservation {
+  recon::Result detection;
+};
+static_assert(std::is_trivially_copyable<CaptureObservation>::value, "Ingress queue requires byte-copyable records");
+static_assert(std::is_trivially_copyable<Observation>::value, "Writer queue requires byte-copyable records");
 struct Counters {
   std::atomic<uint32_t> ingress_drops{0}, log_drops{0}, storage_errors{0};
   std::atomic<uint32_t> malformed{0}, radio_errors{0}, ui_skips{0};
@@ -54,6 +61,6 @@ Fix currentFix();
 // tag its generation at entry without being relabelled by a later Start press.
 void startCapture(uint32_t id, CaptureMode mode);
 void endCapture();
-bool beginObservation(Observation& observation);
-void submit(Observation& observation);
+bool beginObservation(CaptureObservation& observation);
+void submit(CaptureObservation& observation);
 }

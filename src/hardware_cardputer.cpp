@@ -28,14 +28,30 @@ input::KeyEventMapper keyMapper;
 bool keyboardConfigured() {
   // The vendor reader's begin() is void. Check the actual matrix and event
   // configuration so an I2C ACK alone cannot mark failed initialization ready.
-  if (M5.getBoard() != m5::board_t::board_M5CardputerADV) return false;
+  const int i2cPort = static_cast<int>(m5::In_I2C.getPort());
+  const int i2cSda = m5::In_I2C.getSDA(), i2cScl = m5::In_I2C.getSCL();
+  // isEnabled() alone accepts the SDK's I2C_NUM_MAX sentinel; validate its
+  // configured port and pins before attempting diagnostic register reads.
+  const bool busValid = i2cPort >= 0 && i2cPort < SOC_I2C_NUM &&
+      i2cSda >= 0 && i2cSda < GPIO_NUM_MAX &&
+      i2cScl >= 0 && i2cScl < GPIO_NUM_MAX;
   uint8_t rows = 0, columns = 0, config = 0;
-  const auto read = [](uint8_t reg, uint8_t& value) {
-    return m5::In_I2C.readRegister(board::KEYBOARD_ADDRESS, reg, &value, 1, 400000);
-  };
-  return read(TCA8418_REG_KP_GPIO_1, rows) && rows == 0x7f &&
-      read(TCA8418_REG_KP_GPIO_2, columns) && columns == 0xff &&
-      read(TCA8418_REG_CFG, config) && (config & TCA8418_REG_CFG_KE_IEN);
+  bool rowsRead = false, columnsRead = false, configRead = false;
+  if (busValid) {
+    rowsRead = m5::In_I2C.readRegister(board::KEYBOARD_ADDRESS,
+        TCA8418_REG_KP_GPIO_1, &rows, 1, 400000);
+    columnsRead = m5::In_I2C.readRegister(board::KEYBOARD_ADDRESS,
+        TCA8418_REG_KP_GPIO_2, &columns, 1, 400000);
+    configRead = m5::In_I2C.readRegister(board::KEYBOARD_ADDRESS,
+        TCA8418_REG_CFG, &config, 1, 400000);
+  }
+  Serial.printf("LT KEYBOARD board=%u display_board=%u i2c_enabled=%d i2c_valid=%d i2c_port=%d i2c_sda=%d i2c_scl=%d rows_ok=%d rows=0x%02X columns_ok=%d columns=0x%02X cfg_ok=%d cfg=0x%02X\n",
+      static_cast<unsigned>(M5.getBoard()), static_cast<unsigned>(M5.Display.getBoard()),
+      m5::In_I2C.isEnabled(), busValid, i2cPort, i2cSda, i2cScl,
+      rowsRead, rows, columnsRead, columns, configRead, config);
+  return M5.getBoard() == m5::board_t::board_M5CardputerADV &&
+      rowsRead && rows == 0x7f && columnsRead && columns == 0xff &&
+      configRead && (config & TCA8418_REG_CFG_KE_IEN);
 }
 
 void outputLevel(int pin, int level) {
@@ -86,9 +102,16 @@ bool begin() {
   cfg.internal_rtc = false;
   cfg.external_imu = false;
   cfg.external_rtc = false;
+  cfg.external_display_value = 0; // This target has only the built-in LCD.
   cfg.internal_spk = true;
   cfg.led_brightness = 0;
   M5Cardputer.begin(cfg, true);
+  // Short alert tones need a bounded audio queue. Preserve M5's ADV codec,
+  // sample rate and pins; this also sizes its lazily created playback stack.
+  auto speaker = M5.Speaker.config();
+  speaker.dma_buf_len = 128;
+  speaker.dma_buf_count = 4;
+  M5.Speaker.config(speaker);
   M5.Display.setRotation(board::DISPLAY_ROTATION);
   M5.Display.setBrightness(150);
   M5.Speaker.setVolume(64);

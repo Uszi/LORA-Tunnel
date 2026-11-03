@@ -92,6 +92,38 @@ Packaging rejects oversized applications, wrong boards/versions, invalid
 image checksums/digests, mismatched factory/app content, wrong partitions and
 nonblank factory NVS. Use the matching release source and dependency companion.
 
+## Internal-memory configuration
+
+This target retains the pinned SDK's BLE role configuration for linker
+compatibility; the application uses passive scanning only. A project-owned
+forced-include header reduces connection capacity to one and trims unused
+connection-oriented pool reservations after loading the SDK defaults. The
+Heltec target keeps its existing settings.
+
+Cardputer reserves four blocks in each MSYS pool and four controller-to-host
+ACL blocks. The SDK defaults are 12, 24 and 24 respectively. MSYS block sizes
+(256/320 bytes), HCI event counts/sizes, task stack size and the application's
+512-byte evidence capacity are unchanged. Advertising reports use the HCI
+event path; connection-oriented reservations are reduced. The two MSYS changes
+remove 8,448 bytes of requested heap allocation. The compiled ACL pool removes
+another 6,000 bytes (20 aligned 300-byte blocks), for 14,448 bytes of requested
+pool savings. Controller/allocator overhead is separate and measured on-device.
+
+The same Cardputer-only header sets the supported Wi-Fi initialization field
+`csi_enable` to zero through `WIFI_INIT_CONFIG_DEFAULT`. This firmware does not
+use channel-state samples; Wi-Fi AP/probe capture and TLS remain enabled. The
+[Espressif configuration source](https://github.com/espressif/esp-idf/blob/v5.5.3/components/esp_wifi/Kconfig#L143-L150)
+describes CSI memory proportional to the static RX buffer count; actual savings
+for this binary require device measurement. Other Wi-Fi settings and BLE roles
+retain their existing configuration.
+
+`tools/cardputer_build.py` places the full SHA-256 of the forced header in the
+Cardputer compiler flags before framework/library environments are cloned. A
+header change therefore invalidates cached library objects as well as project
+objects. Heltec receives neither the header nor the digest definition. Physical
+reception, upload TLS memory and repeated capture/upload transitions must still
+pass acceptance.
+
 ## Validation status
 
 Cardputer firmware, Launcher installation, browser flashing, U214 reception,
