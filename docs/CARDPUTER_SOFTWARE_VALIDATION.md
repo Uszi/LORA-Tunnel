@@ -1,28 +1,42 @@
 # Cardputer 0.4.0-beta.1 software candidate
 
 Updated 2026-11-03 (America/New_York). **Public release remains blocked.**
-**HW7 is installed by a verified USB application update and capture is stopped.**
-Its boot, partitions and NVS were independently read back unchanged before the
-first boot. Startup reports SD, LoRa, keyboard and audio ready; the new explicit
-settings-save workload is pending. Historical HW6 results below remain scoped
-to that prior binary.
-A later explicit region save on the spare card lowered its lifetime minimum
-internal heap to **16,908 bytes**, failing the **32,768-byte** resource target.
-The save succeeded with LoRa ready and no reported allocation failure, but this
-settings workload is not accepted. The separate stationary capture result below
-remains scoped to that earlier workload; the HW7 fix below must be retested
-on the physical device. The user confirmed custom tones
-without repeating during the short Recon check. The 30-minute run passed its
-continuity and resource checks, but the strict overall result is **failed**:
-the required 30 new UI presentation samples were not exercised (`ui_samples`
-remained zero). This is stationary runtime evidence, not interactive or field
-acceptance. Independent SD readback now passes for the HW6 Recon and full
-Wardriver sessions, including all 34 saved LoRa records and explicit accounting
-for 851 log drops. Known-source LoRa matching, the exact HW6 web/factory
-installation, Launcher, battery/power and live uploads remain pending. **HW5's earlier minimum-heap failure remains recorded below**:
-25,168 bytes after Recon, 7,600 bytes below the required 32,768 bytes. Independent
-SD readback passed for three earlier HW3/HW4 sessions. The published Heltec
-0.3.0-beta.1 artifacts remain unchanged.
+**HW9 is installed by an independently verified USB application update.**
+A ten-status, approximately ten-second read-only boot observation confirmed
+the expected target, initialized keyboard/audio/cap/LoRa, and stopped capture
+and upload. No allocation failure or error-counter growth was observed. SD was
+not mounted (`sd=0`); the expected missing-storage error counter stayed at one.
+The **56,476-byte** internal-heap minimum describes this stopped boot without
+mounted storage, not capture or TLS load. No HW9 capture, storage test, UI
+action, audio audition or live upload was performed.
+
+Historical HW7 save/navigation and short-capture results remain scoped to HW7.
+The user-confirmed US save and fresh keyboard navigation had a qualified
+functional/resource pass: minimum internal heap was **37,780 bytes**, with
+**17 ms** dispatch-to-presentation latency and no reported allocation failure.
+The short HW7 capture checks retained a **34,368-byte** internal-heap minimum;
+both sessions independently passed copied-file readback. These results do not
+establish HW9 behavior or complete release acceptance. The user canceled
+further SD-card testing; no completed physical full-card fault test is claimed
+or scheduled as the next step.
+
+**Historical HW6 evidence remains scoped to HW6.** Its later explicit region
+save lowered the lifetime internal-heap minimum to **16,908 bytes**, failing
+the **32,768-byte** target despite a successful save and no reported allocation
+failure. The HW7 save/navigation result above supersedes that failing workload
+for the tested HW7 interaction; it does not erase the historical failure or
+prove every possible configuration workload. The user confirmed HW6 custom
+tones without repeating during its short Recon check. HW6's 30-minute run
+passed continuity and resource checks, but its strict overall result remains
+**failed** because the required 30 new UI presentation samples were not
+exercised (`ui_samples` stayed zero). That is stationary runtime evidence,
+not interactive or field acceptance. HW6 Recon and full Wardriver copied-file
+readback passed, including 34 saved LoRa records and explicit accounting for
+851 log drops. Known-source LoRa matching, Launcher, battery/power and live
+uploads are not established by those results. **HW5's earlier minimum-heap
+failure also remains recorded below**: 25,168 bytes after Recon, 7,600 bytes
+below the target. Independent readback passed for three earlier HW3/HW4
+sessions. The published Heltec 0.3.0-beta.1 artifacts remain unchanged.
 
 The HW6 application was compiled for `cardputer-adv-lora1262` with the pinned
 Arduino-ESP32 3.3.12 / ESP-IDF 5.5.5 toolchain. Its application image is
@@ -511,10 +525,208 @@ that bootloader, partition table, OTA metadata and namespace-scoped NVS bytes
 were unchanged. This is a direct USB application update, not a HW7 factory,
 web-installer or Launcher installation result.
 
-Initial HW7 status reports capture and upload stopped; SD, LoRa, keyboard,
+Initial HW7 status reported capture and upload stopped; SD, LoRa, keyboard,
 cap and audio ready; zero errors and zero allocation failures. Sampled free
-heap is **39,600 bytes**, largest block **30,708 bytes**, and startup lifetime
-minimum **38,448 bytes**. These startup values do not establish the post-save
-minimum or sustained behavior. Explicit region/credential save, affected SD
-capture and failure handling, and all outstanding acceptance checks remain
-pending. The historical HW6 16,908-byte save minimum remains a failed result.
+heap was **39,600 bytes**, largest block **30,708 bytes**, and startup lifetime
+minimum **38,448 bytes**. The later results below cover the explicit save,
+navigation and short capture workloads; startup alone did not establish them.
+The historical HW6 16,908-byte save minimum remains a failed result.
+
+### HW7 save and keyboard navigation
+
+The user confirmed that US saves and the display redraws normally, then
+confirmed Settings opens and Back returns Home. The first save review was
+inconclusive because its telemetry had no accepted keyboard samples. Fresh
+navigation without an intervening reset produced increasing UI sample counts
+(10, 12, 13, 15, 18), resolving that input-binding ambiguity. The qualified
+functional save/navigation review recorded **37,780 bytes** minimum internal
+heap, **29,684 bytes** minimum sampled largest block and **39,388 bytes**
+minimum sampled free heap, with zero errors and allocation-failure flags.
+Both dispatch-to-presentation p95 and maximum were **17 ms**.
+
+The save timestamp and save-to-confirmation latency were not instrumented.
+Those UI metrics exclude physical keyboard/FIFO delay, and these cumulative
+samples do not establish the strict 30-new-sample sustained-run gate. This
+result does not independently prove NVS fallback or every credential save.
+
+### HW7 short Wardriver and Recon captures
+
+Both sessions stopped and finished saving. Their native start/end markers
+record **60.524 seconds** for Wardriver and **30.450 seconds** for Recon.
+Runtime counters at the final Stop state were:
+
+| Mode | Wi-Fi observations | BLE observations | LoRa receptions | Enabled Recon matches | Additional combined drops | Additional errors |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Wardriver | 219 | 2,097 | 4 | 0 | 1 | 0 |
+| Recon | 352 | 860 | 0 | 19 | 0 | 0 |
+
+The lowest lifetime internal-heap value was **34,368 bytes**, 1,600 bytes
+above the 32 KiB target; it did not decline during the subsequent Recon run.
+Across these short checks, the minimum sampled largest block was **27,636
+bytes** and the reported lifetime loop/writer stack low-water margins were **4,356 /
+3,452 bytes**. No allocation failure, crash diagnostic or readiness failure
+was observed. These counters and samples are scoped resource evidence, not a
+worst-case memory bound or a 30-minute HW7 result.
+
+Wardriver status sampled no active tone or admitted alert. Recon recorded four
+new alert-history admissions; its post-Stop statuses had no active tone.
+This is scheduler telemetry, not a count of independently heard performances
+or proof that every motif was exercised. No new UI samples were collected
+during these captures; their reported 17 ms UI values came from earlier input.
+After the final mode change, the device returned to stopped Wardriver.
+
+### Independent HW7 copied-session readback
+
+A verified private file backup preceded offline validation of the two copied
+sessions. Both passed the production schema, matching start/end markers,
+contiguous sequence numbers, target/version/mode consistency, monotonic record
+times and retained raw-length checks. All **2,342 records** were valid: four
+markers plus the radio records below.
+
+| Mode | Persisted Wi-Fi | Persisted BLE | Persisted LoRa | Marker ingress-drop delta | Marker log-drop delta | Storage/radio error deltas |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| Wardriver | 219 | 2,096 | 4 | 0 | 1 | 0 / 0 |
+| Recon | 0 | 19 | 0 | 0 | 0 | 0 / 0 |
+
+The one-record Wardriver BLE difference from its final runtime counter is
+consistent with the single log-drop increment; the aggregate evidence cannot
+identify the missing observation or its precise cause. Recon counts every
+consumed radio observation before classification but saves only enabled
+matches. Its 19 retained BLE evidence records therefore match all 19 runtime
+matches; the larger observation totals do not imply lost Recon log records.
+Neither result establishes lossless RF reception or authenticates a detection.
+
+All **2,338 radio records** have fresh sentence UTC, but **none has a fresh
+receiver position**. Invalid latitude, longitude and altitude fields are null,
+not fabricated zeroes or retained stale coordinates. These sessions therefore
+contain no eligible geolocated rows for the automatic upload services. A local
+"No eligible data; nothing uploaded" result would be expected, not a receipt.
+
+The retained BLE payload maximum was **31 bytes** and the LoRa maximum was
+**94 bytes**, with no recorded truncation. Wi-Fi records are completed AP scan
+results without raw-frame fields; maximum-capacity raw frames were not tested.
+The four LoRa records retain the configured **906.875 MHz** frequency and
+successful driver-read status, while CRC is explicitly not reported and the
+payload is not decoded. Copied records do not establish a known transmitting
+source, CRC verification, GNSS accuracy or exact firmware origin from the
+shared version string alone. The installed application hash is established
+separately by USB readback above.
+
+The sanitized aggregate reviews are retained privately as
+`hw7-save-navigation-review.json`, `hw7-writer-smoke-review.json`,
+`hw7-recon-smoke-review.json` and `hw7-sd-readback-review.json`; captured values,
+credentials, original session filenames and raw payloads are not published.
+
+Further SD-card fault testing was canceled at the user's request. The
+preparation activity is not a completed physical full-card firmware test and
+is not an upcoming task. Work continues on firmware and release preparation.
+The last captures were stopped and saved before the user powered off the
+Cardputer and moved the card to the PC reader. HW7 factory/web installation,
+Launcher install/return, sustained interactive capture, fresh-fix/known-source
+acceptance, power/wake and live upload/restore behavior remain unverified for
+these exact binaries. Existing publication checks and pending status are
+unchanged; no canceled or unperformed test is marked passed.
+
+## HW8 upload-lifecycle software checkpoint
+
+HW8 compiled successfully for both Cardputer and Heltec and passed **134 native
+cases**, the updated actual uploader fixture (**758 Cardputer / 573 Heltec
+checks**), **94 actual-session checks**, **42 actual BLE-lifecycle checks**,
+and the shared checked-storage/logger fixture. Its local package is
+`build-output/cardputer-hw8`; the application is **1,733,264 bytes**. These are
+software/build results only. **HW8 was not flashed**; the subsequent installed
+HW9 application and its limited boot observation are recorded below.
+
+The Cardputer upload coordinator now reuses the idle writer task to release
+BLE before allocating the 16 KiB upload-worker stack. After upload cleanup,
+it waits for the worker to suspend and deletes it from the same core before
+restoring BLE. Logger maintenance and upload ownership keep capture gated
+until that sequence finishes. The host fixture checks actual maintenance and
+BLE functions, retained worker-stack lifetime, cancellation and failure paths.
+Its deterministic scheduler adapter does not establish real TLS peak heap,
+writer-stack demand or hardware transition timing. Heltec retains its existing
+BLE lifetime.
+
+Subsequent source review identified unchecked finalization results in uploader
+CSV/checkpoint persistence. HW9 addresses that gap as recorded below. HW8 remains
+an intermediate software checkpoint, not an installed or accepted release.
+No live uploads, device acceptance or public publication are inferred from
+these builds. The user's cancellation of further SD-card testing remains in
+effect.
+
+## HW9 checked upload persistence: verified USB installation and stopped boot
+
+The frozen HW9 source compiled successfully for **Cardputer in 32.91 seconds**
+and **Heltec in 32.58 seconds**. The final actual uploader fixtures passed
+**1,009 Cardputer / 824 Heltec checks**, plus **94 actual-session checks** and
+**42 actual BLE-lifecycle checks**. The shared checked-storage/logger fixtures
+passed **583 Cardputer / 498 Heltec checks**. The **134 native cases** passed
+at HW8; their native inputs are unchanged for HW9, so that result is carried
+forward rather than described as a new native run. These tests use offline
+adapters and make no live service requests.
+
+HW9 retains the idle-writer BLE/worker-stack coordination introduced in HW8.
+It additionally uses the real shared checked-file helper for CSV staging and
+checkpoint writes on both targets, with bounded caller-owned **512-byte**
+buffers. Short writes, full-count writes with a stream error, and failures from
+`fflush`, `fsync` or `fclose` are detected. No POST starts before successful
+finalization of the staged CSV and its sending checkpoint. Checkpoint readback
+also verifies the written generation, state, job and retry metadata. A received
+service response followed by a persistence failure reports that failure rather
+than claiming durable completed acceptance.
+
+The actual-worker fixtures inject these failures at staging, sending,
+accepted-receipt, pending-job and cancellation checkpoints. They preserve the
+source session and exercise cleanup and retry/receipt boundaries. Their
+results establish software behavior under those injected failures, not
+physical full-card, power-loss, TLS peak-memory or live-service acceptance.
+Further SD-card testing remains canceled.
+
+All **76 firmware build inputs** match the frozen source digest
+`e9f1198d629299d60b22860426ec58986e133c7df21daae644a04d186d14105d`.
+The local package is `build-output/cardputer-hw9`. Its application is
+**1,731,840 bytes**, leaving **1,610,496 bytes** below the 3,342,336-byte ceiling.
+The factory contains the same application. Candidate hashes are:
+
+| Artifact | SHA-256 |
+| --- | --- |
+| HW9 Launcher application | `180d674e02e4746724ccd7c364ffe1fddf5b7c8ed27173147061a970c81e9847` |
+| HW9 factory at 0x0 | `2570e51731eeda465453d1a6e3e8e20cc6f5994b17365765398c8b7338daa6ba` |
+
+The local firmware checkpoint is
+`6e28226ec6554106607516e06b262dec9bfcda33`. Before updating the device, a complete
+private **8,388,608-byte** flash backup was taken and the installed HW7
+application and partition layout were checked. The **1,731,840-byte HW9
+application** was written at **0x10000** with esptool and independently verified
+against its exact SHA-256 above. A separate **64 KiB readback before first
+boot** confirmed that bootloader, partition table, OTA metadata and NVS bytes
+were unchanged. This establishes the USB application update; the HW9 factory
+image, browser installation and Launcher installation were not exercised.
+
+A subsequent read-only observation collected **10 valid status samples over
+10.14 seconds**, with no malformed or oversized status lines. Every sample
+reported the expected target, `ready=1`, stopped capture/save/upload, initialized
+keyboard and audio, `cap_ok=1` and `lora=1`. The allocation-failure flag stayed
+zero. Storage was absent/unmounted (`sd=0`), with the expected missing-storage
+error count stable at **one**; this is not a zero-error storage result or a
+storage-recovery test. GNSS characters arrived, but no fresh fix or radio
+capture was established.
+
+The reported lifetime internal-heap minimum was **56,476 bytes**, the sampled
+largest internal block **31,732 bytes**, and the reported loop/writer stack
+low-water margins **5,236 / 4,784 bytes**. These values describe stopped boot
+without mounted storage. They do not establish loaded capture or TLS memory,
+writer-stack demand during uploads, or an improvement over the differently
+loaded historical HW7 captures. Input/audio initialization does not establish
+physical key operation or audible sound; `ui_samples` remained zero and no
+audio audition was performed.
+
+The sanitized installation and boot records are retained privately as
+`hw9-usb-app-verification.json` and `hw9-boot-review.json`. No capture, storage
+test, credential change, live upload, physical UI action or audio audition was
+performed in this HW9 observation. Historical HW7 save, capture and
+copied-session results remain attributed to HW7. Full hardware acceptance and
+public publication remain pending, with the existing release gates unchanged.
+The current-source Heltec build is regression evidence only; its published
+0.3.0-beta.1 artifacts remain unchanged. Further SD-card testing remains
+canceled.

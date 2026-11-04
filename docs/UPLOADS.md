@@ -1,10 +1,10 @@
 # Home Wi-Fi uploads
 
 LORA Tunnel can send eligible records from completed native SD sessions to
-WiGLE, Wardrift.net, and WDGWars. Configure **Settings â†’ Connection keys**,
-then enable each destination under **Settings â†’ Automatic uploads**. Automatic
+WiGLE, Wardrift.net, and WDGWars. Configure **Settings → Connection keys**,
+then enable each destination under **Settings → Automatic uploads**. Automatic
 uploads are off by default, including when an older configuration already has
-API credentials. A Wi-Fi password may be blank for an open network, 8â€“63
+API credentials. A Wi-Fi password may be blank for an open network, 8–63
 characters, or a 64-digit hexadecimal key. SSIDs are limited to 32 bytes.
 
 WiGLE uses its API name and API token; Wardrift and WDGWars each use their own
@@ -61,21 +61,34 @@ retries scheduled during a result-checkpoint write. Leaving the Uploads page aft
 does not restart the worker. Enabled services become eligible again after a
 later capture is stopped, a configuration change, a manual request, or reboot.
 
-On Cardputer, the upload worker releases the BLE host/controller before its
-large parsing/TLS allocations and restores the passive scanner after closing
-all HTTP/files and freeing upload buffers. Start cancels upload and waits for
-restoration; a failed restoration blocks capture before a session is opened.
-Heltec keeps its existing BLE lifetime. Each Cardputer BLE transition has an
-independent 15-second recovery timer, armed only at stopped/saved boundaries.
-A timeout emits an explicit nonsecret `LT BLE transition_timeout=... failed=1`
-diagnostic and restarts into idle operation with checkpoints/config retained.
-Exercising that timer is failed hardware acceptance, never a successful upload
-or restoration. The 16 KiB worker stack must still fit before BLE can be released;
-worker creation failure remains visible and sends no data. Cardputer uploader
-files use checked 512-byte stdio buffers. Opening a file fails cleanly if that
-buffer cannot be configured; offline fixtures enforce the two-regular-file
-ceiling across success, retry, cancellation and checkpoint failure paths.
-Directory handles are counted separately by the filesystem.
+Current Cardputer source reuses the idle logger writer task to coordinate
+uploads after capture has stopped and all session writes have finished. It
+releases the BLE host/controller **before allocating the 16 KiB upload-worker
+stack**. The worker performs parsing and HTTPS work, closes all HTTP/file
+handles, frees its upload buffers and work object, then suspends. The writer
+coordinator runs on the same core and waits for both completion and suspension
+before deleting that worker, reclaiming its stack before restoring the passive
+BLE scanner. Upload busy status remains set through restoration and until
+logger maintenance ownership is released. Start cancels upload and waits for
+that cleanup; a failed restoration blocks capture before a session is opened.
+Worker creation failure sends no data and still restores BLE after a successful
+pause. Heltec keeps its existing BLE lifetime.
+
+Each Cardputer BLE transition has an independent 15-second recovery timer,
+armed only at stopped/saved boundaries. A timeout emits an explicit nonsecret
+`LT BLE transition_timeout=... failed=1` diagnostic and restarts into idle
+operation with checkpoints/config retained. Exercising that timer is failed
+hardware acceptance, never a successful upload or restoration. Offline tests
+check the ownership and stack-release ordering; actual TLS peak memory and
+capture/upload restoration timing remain unmeasured on the new candidate.
+On both current-source targets, CSV staging and checkpoint writers use the
+shared checked-file helper with caller-owned 512-byte stdio buffers. It checks
+write lengths, stream errors, flush, filesystem sync and close results;
+configuration or finalization failure is not treated as a successful save.
+The Cardputer file-read helper also requests a 512-byte stdio cache.
+Offline fixtures enforce the two-regular-file ceiling across success, retry,
+cancellation and checkpoint failure paths. Directory handles are counted
+separately by the filesystem.
 
 ## What is eligible
 
@@ -112,10 +125,16 @@ but do not produce a new accepted-upload message.
 ## Receipts, retries, and recovery
 
 Progress is independent for each source, chunk, and destination under
-`/lora-tunnel/uploads/`. Dual alternating checkpoint slots are flushed, closed,
-and read back before a request is sent or considered complete. Successful
-chunks remain complete across restarts. Whole-file completion avoids repeatedly
-rewriting derived CSV, while the original source hash is still checked.
+`/lora-tunnel/uploads/`. Dual alternating checkpoint slots are flushed, synced,
+closed and read back before a request is sent or considered complete. An HTTP
+POST cannot begin until both the staged CSV and its `sending` checkpoint have
+successfully finalized. Readback verifies the generation, state, job and retry
+metadata against the values written. A short write, stream error, or failed
+flush/sync/close blocks that transition even if bytes remain readable in cache.
+If a service receipt arrives but saving its checkpoint fails, the status reports
+the receipt/checkpoint failure; it does not claim durable completed acceptance.
+Successful chunks remain complete across restarts. Whole-file completion avoids
+repeatedly rewriting derived CSV, while the original source hash is still checked.
 
 - **WiGLE:** multipart POST to `/api/v2/file/upload`, HTTP Basic API credentials;
   HTTP 200 and JSON `success: true` establish acceptance.

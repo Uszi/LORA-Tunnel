@@ -57,9 +57,34 @@ application at 0x0.** No additional flash filesystem image is required.
 
 Before USB installation, identify the actual device and port, back up existing
 firmware/settings and microSD files, and close serial monitors. Preserve any
-device dump privately. Use the Cardputer ADV boot/download procedure from
-M5Stack when a running firmware does not expose a usable port. The browser
-detects ESP32-S3, not the board or cap: confirm the exact hardware yourself.
+device dump privately. The browser detects ESP32-S3, not the board or cap:
+confirm the exact hardware yourself.
+
+## Cardputer ADV download mode and recovery
+
+If the application does not boot or expose a usable USB port, use M5Stack's
+[Cardputer ADV download-mode procedure](https://docs.m5stack.com/en/core/Cardputer-Adv#download-mode):
+set the side power switch to **OFF**, hold **G0** before applying power, then
+apply power and release G0. Re-enumerate and identify the resulting ESP32-S3
+USB port; it may differ from the running application's port. This is ROM
+flashing mode, separate from returning to Launcher's menu.
+
+The ADV has **8 MB flash**. A complete backup from this same device must be
+exactly **8,388,608 bytes** and match its independently recorded SHA-256 before
+it is used for restoration. A dump can contain credentials and device state;
+never distribute it. The repository's Heltec recovery guide uses different
+16 MB geometry and Heltec buttons; its offsets and scoped recovery recipe do
+not apply to Cardputer ADV.
+
+For a clean LORA Tunnel installation, select the checksummed ADV
+`FACTORY-0x0.bin` through the board-specific web installer or M5Burner at
+**0x0**. This replaces Launcher. To restore this unit's prior firmware state,
+use its separately verified full 8 MB backup at **0x0**, then verify the written
+bytes before booting. Do not use another device's dump or the application-only
+Launcher file as a whole-device image. Restore verification and normal cold
+boot are separate checks; neither is implied merely by possessing a backup.
+A bootloader connection or blank screen alone does not justify an erase or
+bypassing a chip/security mismatch.
 
 ## Install using Launcher
 
@@ -126,7 +151,18 @@ pass acceptance.
 
 ## Validation status
 
-Cardputer firmware, Launcher installation, browser flashing, U214 reception,
-GNSS, SD readback, keyboard, battery/power and sustained capture require the
-physical device. See the [acceptance and publication checklist](CARDPUTER_RELEASE.md).
-Heltec test results do not establish Cardputer hardware behavior.
+HW9 has passed its software/build checks and is installed by an independently
+verified USB application update. A short read-only boot observation confirmed
+the expected target, initialized input/audio/cap/LoRa and stopped operation,
+with no allocation failure or error-counter growth. Storage was not mounted;
+its stable missing-storage error and boot memory readings are not capture,
+storage, TLS or physical UI/audio acceptance. See the
+[validation checkpoint](CARDPUTER_SOFTWARE_VALIDATION.md) for exact hashes and
+scopes. Historical HW7 save/navigation, short capture and copied-session
+results remain attributed to HW7.
+
+Launcher install/return, exact candidate factory/web installation, sustained
+interactive operation, fresh-fix/known-source evidence, power/wake and live
+upload behavior remain unverified. Further SD fault testing was canceled and
+is not an upcoming task. The [publication checklist](CARDPUTER_RELEASE.md)
+remains unchanged. Heltec results do not establish Cardputer hardware behavior.
