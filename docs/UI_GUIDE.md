@@ -83,9 +83,13 @@ SD `recon.categories` controls which classifications are enabled.
 `recon.display_min` defaults to `low` and affects displayed summaries.
 Enabled-category matches are logged even below that display threshold.
 `recon.alert_min` defaults to `medium`. Alerts also require the buzzer to be
-enabled and the winning rule to allow an alert. They are limited to once per
-30 seconds for a retained identity and no more than once per second globally.
-Cache eviction bounds the retained identity cooldown history.
+enabled and the winning rule to allow an alert. Current source plays a short
+original motif only during active Recon capture, once per observed identity
+in that session, with no more than one new admission per second. Muting,
+waiting or display-cache eviction does not replay it. Stop/mode change/sleep
+cancel the sound. A separate fixed 128-identity history suppresses new sound
+when full; an explicit new Recon session resets it. See [detection sounds](ALERTS.md)
+for the cue mapping, identity limitations and physical-test status.
 
 ## Optional physical controls
 

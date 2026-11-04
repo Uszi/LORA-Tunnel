@@ -30,16 +30,20 @@ constexpr const char* endpoints[]={"https://api.wigle.net/api/v2/file/upload","h
 constexpr size_t LineCapacity=8193;
 std::atomic<bool> busy{false},cancelled{false};
 std::atomic<unsigned> requests{0},retryMask{0},authBlocked{0};
-std::atomic<uint32_t> nextRetry{0};
+std::atomic<uint32_t> nextRetry{0},nextJobPoll{0};
+std::atomic<unsigned> jobPollMask{0};
 bool wasIdle=false,initialPending=true;
 uint32_t bootId=0,settingsEpoch=1;
 std::atomic<unsigned> associationFailures{0};
 portMUX_TYPE statusMux=portMUX_INITIALIZER_UNLOCKED;
 char statusText[64]="Uploads off; configure keys and services";
-struct Work { Config settings; unsigned mask=0,manual=0; uint32_t epoch=1; };
+struct Work { Config settings; unsigned mask=0,manual=0,pollMask=0; uint32_t epoch=1;
+  bool pollOnly=false,resultReported=false,alreadyProcessed=false,skippedFiles=false; };
 struct StorageLock {StorageLock(){xSemaphoreTake(busMutex,portMAX_DELAY);}~StorageLock(){xSemaphoreGive(busMutex);}};
 void status(const char* text){portENTER_CRITICAL(&statusMux);strlcpy(statusText,text,sizeof(statusText));portEXIT_CRITICAL(&statusMux);}
 void serviceStatus(int service,const char* text){char line[64];snprintf(line,sizeof(line),"%s: %s",names[service],text);status(line);}
+void workStatus(Work& work,const char* text){work.resultReported=true;status(text);}
+void workServiceStatus(Work& work,int service,const char* text){work.resultReported=true;serviceStatus(service,text);}
 bool stopped(){return cancelled.load(std::memory_order_relaxed);}
 bool delayUntil(uint32_t duration){const uint32_t start=millis();while(millis()-start<duration){if(stopped())return false;vTaskDelay(pdMS_TO_TICKS(50));}return true;}
 // Keep Cardputer's stdio cache bounded; every caller already owns StorageLock.
@@ -62,6 +66,10 @@ bool credentials(const Config& c,int service) {
 void scheduleRetry(int service,uint32_t delay) {
   retryMask.fetch_or(1U<<service);const uint32_t at=millis()+delay,old=nextRetry.load();
   if(!old || int32_t(at-old)<0)nextRetry=at;
+}
+void scheduleJobPoll(int service,uint32_t delay) {
+  jobPollMask.fetch_or(1U<<service);const uint32_t at=millis()+delay,old=nextJobPoll.load();
+  if(!old || int32_t(at-old)<0)nextJobPoll=at;
 }
 // One line is bounded by the native writer's 8192-byte serialized-record limit.
 // Oversized/imported lines are drained and skipped without unbounded allocation.
@@ -214,26 +222,34 @@ bool associate(const Work& work) {
   }
   if(time(nullptr)<1735689600){status("Clock unavailable; TLS upload deferred");return false;}return !stopped();
 }
-bool processChunk(const Work& work,const char* directory,const char* hash,size_t sourceBytes,unsigned chunk,bool empty) {
+bool processChunk(Work& work,const char* directory,const char* hash,size_t sourceBytes,unsigned chunk,bool empty) {
   char filename[100];snprintf(filename,sizeof(filename),"LORA-Tunnel-%.64s-%u.csv",hash,chunk);
   for(int service=0;service<3&&!stopped();++service) {
     if(!(work.mask&(1U<<service)))continue;
     const bool manual=work.manual&(1U<<service);
-    if(!credentials(work.settings,service)){serviceStatus(service,"configure service credentials");continue;}
-    if(authBlocked.load()&(1U<<service))continue;
+    if(!credentials(work.settings,service)){workServiceStatus(work,service,"configure service credentials");continue;}
+    if(authBlocked.load()&(1U<<service)){workServiceStatus(work,service,"authentication paused; check API key");continue;}
     Checkpoint cp,budget;loadCheckpoint(directory,service,int(chunk),hash,sourceBytes,cp);
     loadCheckpoint(directory,service,-1,hash,sourceBytes,budget);
-    if(!strcmp(cp.state,"accepted")||!strcmp(cp.state,"skipped"))continue;
-    if(empty){if(!setState(directory,service,int(chunk),hash,sourceBytes,cp,"skipped")){status("SD checkpoint failed; originals kept");return false;}continue;}
-    if((!strcmp(cp.state,"auth")||!strcmp(cp.state,"authjob")) && cp.epoch==work.epoch && !manual) {authBlocked.fetch_or(1U<<service);serviceStatus(service,"authentication paused; check API key");continue;}
+    if(!strcmp(cp.state,"accepted")||!strcmp(cp.state,"skipped")){work.alreadyProcessed=true;continue;}
+    const bool polling=(!strcmp(cp.state,"job")||!strcmp(cp.state,"authjob")) && upload::safeJobId(cp.job);
+    // A continuation worker cannot turn missing, stale or rejected jobs into POSTs.
+    if((work.pollOnly||(work.pollMask&(1U<<service)))&&!polling)continue;
+    if(empty){if(!setState(directory,service,int(chunk),hash,sourceBytes,cp,"skipped")){workStatus(work,"SD checkpoint failed; originals kept");return false;}continue;}
+    if((!strcmp(cp.state,"auth")||!strcmp(cp.state,"authjob")) && cp.epoch==work.epoch && !manual) {authBlocked.fetch_or(1U<<service);workServiceStatus(work,service,"authentication paused; check API key");continue;}
+    // FAT iteration may discover a new alternating slot written earlier in this
+    // pass. Persist the per-job due time so that cannot cause an immediate GET.
+    if(polling&&!manual&&cp.boot==bootId&&cp.retryAt&&int32_t(millis()-cp.retryAt)<0){
+      scheduleJobPoll(service,cp.retryAt-millis());workServiceStatus(work,service,"job queued; receipt pending");continue;}
     if(budget.boot!=bootId||budget.epoch!=work.epoch){budget.boot=bootId;budget.attempts=0;budget.retryAt=0;}
     budget.epoch=cp.epoch=work.epoch;
-    if(budget.attempts>=3){serviceStatus(service,"retry limit; manual retry available");continue;}
-    if(budget.retryAt && int32_t(millis()-budget.retryAt)<0){scheduleRetry(service,budget.retryAt-millis());continue;}
-    const bool polling=(!strcmp(cp.state,"job")||!strcmp(cp.state,"authjob")) && upload::safeJobId(cp.job);
-    if(!polling&&!upload::checkpointMaySend(cp.state,manual)){serviceStatus(service,"receipt uncertain; manual retry needed");continue;}
-    if(!polling&&!setState(directory,service,int(chunk),hash,sourceBytes,cp,"sending")){status("SD checkpoint failed; upload cancelled");return false;}
-    serviceStatus(service,polling?"checking persisted upload job":"sending completed session chunk");
+    if(budget.attempts>=3){workServiceStatus(work,service,"retry limit; manual retry available");continue;}
+    if(budget.retryAt && int32_t(millis()-budget.retryAt)<0){
+      if(polling)scheduleJobPoll(service,budget.retryAt-millis());else scheduleRetry(service,budget.retryAt-millis());
+      workServiceStatus(work,service,polling?"job retry scheduled":"retry scheduled");continue;}
+    if(!polling&&!upload::checkpointMaySend(cp.state,manual)){workServiceStatus(work,service,"receipt uncertain; manual retry needed");continue;}
+    if(!polling&&!setState(directory,service,int(chunk),hash,sourceBytes,cp,"sending")){workStatus(work,"SD checkpoint failed; upload cancelled");return false;}
+    workServiceStatus(work,service,polling?"checking persisted upload job":"sending completed session chunk");
     const Response response=requestHttp(work,service,staging,filename,polling?cp.job:nullptr);
     if(stopped()) {
       setState(directory,service,int(chunk),hash,sourceBytes,cp,polling?"job":response.bodySent?"uncertain":"retry");
@@ -242,22 +258,25 @@ bool processChunk(const Work& work,const char* directory,const char* hash,size_t
     StaticJsonDocument<2048> body;const bool valid=response.complete&&!deserializeJson(body,response.body);
     const auto result=upload::receipt(service,response.status,valid?body.as<JsonVariantConst>():JsonVariantConst{},polling);
     if(result==upload::Receipt::Accepted) {
-      if(!setState(directory,service,int(chunk),hash,sourceBytes,cp,"accepted")){status("Receipt received; SD checkpoint failed");return false;}
-      serviceStatus(service,"accepted; original log retained");
+      if(!setState(directory,service,int(chunk),hash,sourceBytes,cp,"accepted")){workStatus(work,"Receipt received; SD checkpoint failed");return false;}
+      workServiceStatus(work,service,"accepted; original log retained");
     } else if(result==upload::Receipt::JobPending) {
       if(!polling)upload::normalizeJobId(body["job_id"],cp.job,sizeof(cp.job));
-      if(!setState(directory,service,int(chunk),hash,sourceBytes,cp,"job")){status("Job accepted; SD checkpoint failed");return false;}
-      scheduleRetry(service,30000);serviceStatus(service,"job queued; receipt pending");
+      cp.boot=bootId;cp.retryAt=millis()+30000;
+      if(!setState(directory,service,int(chunk),hash,sourceBytes,cp,"job")){workStatus(work,"Job accepted; SD checkpoint failed");return false;}
+      scheduleJobPoll(service,30000);workServiceStatus(work,service,"job queued; receipt pending");
     } else {
       ++budget.attempts;budget.retryAt=millis()+upload::retryDelay(budget.attempts);
-      if(!saveCheckpoint(directory,service,-1,hash,sourceBytes,budget)){status("SD retry checkpoint failed");return false;}
+      if(!saveCheckpoint(directory,service,-1,hash,sourceBytes,budget)){workStatus(work,"SD retry checkpoint failed");return false;}
       const bool uncertain=response.status==0&&response.bodySent&&!polling;
       const char* state=result==upload::Receipt::JobFailed?"rejected":result==upload::Receipt::Authentication?(polling?"authjob":"auth"):polling?"job":uncertain?"uncertain":result==upload::Receipt::Retryable?"retry":"rejected";
-      if(!setState(directory,service,int(chunk),hash,sourceBytes,cp,state)){status("SD result checkpoint failed");return false;}
-      if(result==upload::Receipt::Authentication){authBlocked.fetch_or(1U<<service);serviceStatus(service,"authentication failed; check API key");}
-      else if(uncertain)serviceStatus(service,"receipt uncertain; manual retry needed");
-      else if(result==upload::Receipt::Retryable && budget.attempts<3){scheduleRetry(service,upload::retryDelay(budget.attempts));serviceStatus(service,"temporary failure; retry scheduled");}
-      else serviceStatus(service,result==upload::Receipt::JobFailed?"server job failed; original kept":"upload rejected; manual retry available");
+      if(!setState(directory,service,int(chunk),hash,sourceBytes,cp,state)){workStatus(work,"SD result checkpoint failed");return false;}
+      if(result==upload::Receipt::Authentication){authBlocked.fetch_or(1U<<service);workServiceStatus(work,service,"authentication failed; check API key");}
+      else if(uncertain)workServiceStatus(work,service,"receipt uncertain; manual retry needed");
+      else if(result==upload::Receipt::Retryable && budget.attempts<3){
+        if(polling)scheduleJobPoll(service,upload::retryDelay(budget.attempts));else scheduleRetry(service,upload::retryDelay(budget.attempts));
+        workServiceStatus(work,service,"temporary failure; retry scheduled");}
+      else workServiceStatus(work,service,result==upload::Receipt::JobFailed?"server job failed; original kept":"upload rejected; manual retry available");
     }
   }
   return true;
@@ -270,24 +289,52 @@ bool stageHeader(File& file) {
   return writeCsv(file,first,strlen(first))&&writeCsv(file,upload::CsvColumns,strlen(upload::CsvColumns));
 }
 bool finishCsv(File& file){StorageLock lock;if(!file)return false;file.flush();const bool ok=!file.getWriteError();file.close();return ok;}
-void processSession(const Work& work,const char* path,char* line,char* row,DynamicJsonDocument& doc) {
+bool checkpointChunk(const char* name,unsigned& chunk,unsigned& slot) {
+  if(strncmp(name,"2-",2))return false;
+  const char* p=name+2;if(*p<'0'||*p>'9'||(*p=='0'&&p[1]>='0'&&p[1]<='9'))return false;
+  uint32_t value=0;
+  do {const unsigned digit=unsigned(*p-'0');if(value>(0x7fffffffU-digit)/10)return false;
+    value=value*10+digit;++p;}while(*p>='0'&&*p<='9');
+  if(!strcmp(p,".a.json"))slot=0;else if(!strcmp(p,".b.json"))slot=1;else return false;
+  chunk=value;return true;
+}
+void pollSessionJobs(Work& work,const char* directory,const char* hash,size_t bytes) {
+  if(!(work.mask&(1U<<2)))return;
+  File jobs;{StorageLock lock;jobs=openFile(directory);}if(!jobs)return;
+  while(!stopped()) {
+    char name[100]{};bool file=false;
+    {StorageLock lock;File entry=jobs.openNextFile();if(!entry)break;file=!entry.isDirectory();
+      const char* base=strrchr(entry.name(),'/');strlcpy(name,base?base+1:entry.name(),sizeof(name));entry.close();}
+    unsigned chunk=0,slot=0;if(!file||!checkpointChunk(name,chunk,slot))continue;
+    // Process each chunk once even when both alternating slots exist. The
+    // loader still validates both and chooses the newest valid generation.
+    if(!slot){char other[144];checkpointPath(other,directory,2,int(chunk),1);
+      StorageLock lock;if(SD.exists(other))continue;}
+    Checkpoint cp;if(!loadCheckpoint(directory,2,int(chunk),hash,bytes,cp))continue;
+    if((strcmp(cp.state,"job")&&strcmp(cp.state,"authjob"))||!upload::safeJobId(cp.job))continue;
+    if(!processChunk(work,directory,hash,bytes,chunk,false))break;
+  }
+  closeFile(jobs);
+}
+void processSession(Work& work,const char* path,char* line,char* row,DynamicJsonDocument& doc) {
   char hash[65];size_t bytes=0;if(!closedSession(path,hash,bytes,line,doc))return;
   char directory[100];snprintf(directory,sizeof(directory),"%s/%s",root,hash);
-  {StorageLock lock;if(!SD.mkdir(directory)){status("Cannot create upload checkpoints on SD");return;}}
+  if(work.pollOnly){pollSessionJobs(work,directory,hash,bytes);return;}
+  {StorageLock lock;if(!SD.mkdir(directory)){workStatus(work,"Cannot create upload checkpoints on SD");return;}}
   bool alreadyComplete=true;
   for(int service=0;service<3;++service)if(work.mask&(1U<<service)) {
     Checkpoint complete;loadCheckpoint(directory,service,-2,hash,bytes,complete);
-    if(strcmp(complete.state,"accepted"))alreadyComplete=false;
+    if(strcmp(complete.state,"accepted")&&strcmp(complete.state,"skipped"))alreadyComplete=false;
   }
-  if(alreadyComplete)return;
+  if(alreadyComplete){work.alreadyProcessed=true;return;}
   // Manual requests reset the per-source/service retry budget without clearing
   // accepted chunks or persisted asynchronous jobs.
   for(int service=0;service<3;++service)if(work.manual&(1U<<service)) {
     Checkpoint budget;loadCheckpoint(directory,service,-1,hash,bytes,budget);budget.boot=bootId;budget.attempts=0;budget.retryAt=0;budget.epoch=work.epoch;
-    if(!saveCheckpoint(directory,service,-1,hash,bytes,budget)){status("SD checkpoint failed");return;}
+    if(!saveCheckpoint(directory,service,-1,hash,bytes,budget)){workStatus(work,"SD checkpoint failed");return;}
   }
-  File source,out;{StorageLock lock;source=openFile(path,FILE_READ);}if(!source)return;
-  if(!stageHeader(out)){closeFile(source);closeFile(out);status("Cannot stage upload CSV on SD");return;}
+  File source,out;{StorageLock lock;source=openFile(path,FILE_READ);}if(!source){workStatus(work,"Cannot read completed session on SD");return;}
+  if(!stageHeader(out)){closeFile(source);closeFile(out);workStatus(work,"Cannot stage upload CSV on SD");return;}
   unsigned chunk=0,rows=0;size_t chunkBytes;{StorageLock lock;chunkBytes=out.size();}
   bool ok=true;
   while(!stopped()) {
@@ -304,18 +351,20 @@ void processSession(const Work& work,const char* path,char* line,char* row,Dynam
   }
   closeFile(source);
   if(ok&&!stopped()&&finishCsv(out)) {
+    if(chunk==0&&rows==0)work.skippedFiles=true;
     if(!processChunk(work,directory,hash,bytes,chunk,rows==0))return;
     // A compact whole-file completion checkpoint avoids rewriting derived CSV
     // on every idle scan. Source SHA256 is still rechecked before trusting it.
     for(int service=0;service<3;++service)if(work.mask&(1U<<service)) {
-      bool complete=true;for(unsigned part=0;part<=chunk;++part) {
+      bool complete=true,accepted=false;for(unsigned part=0;part<=chunk;++part) {
         Checkpoint state;loadCheckpoint(directory,service,int(part),hash,bytes,state);
-        if(strcmp(state.state,"accepted")&&strcmp(state.state,"skipped")){complete=false;break;}
+        if(!strcmp(state.state,"accepted"))accepted=true;
+        else if(strcmp(state.state,"skipped")){complete=false;break;}
       }
-      if(complete){Checkpoint summary;loadCheckpoint(directory,service,-2,hash,bytes,summary);if(!setState(directory,service,-2,hash,bytes,summary,"accepted")){status("SD completion checkpoint failed");return;}}
+      if(complete){Checkpoint summary;loadCheckpoint(directory,service,-2,hash,bytes,summary);if(!setState(directory,service,-2,hash,bytes,summary,accepted?"accepted":"skipped")){workStatus(work,"SD completion checkpoint failed");return;}}
     }
   }
-  else {closeFile(out);if(!stopped())status("SD staging error; original session kept");}
+  else {closeFile(out);if(!stopped())workStatus(work,"SD staging error; original session kept");}
 }
 void worker(void* argument) {
   Work* work=static_cast<Work*>(argument);
@@ -333,9 +382,10 @@ void worker(void* argument) {
   char* line=nullptr;char* row=nullptr;DynamicJsonDocument* doc=nullptr;
   bool ok=radioReady&&!stopped();
   if(ok) {
-    line=static_cast<char*>(malloc(LineCapacity));row=static_cast<char*>(malloc(upload::CsvRowCapacity));
+    line=static_cast<char*>(malloc(LineCapacity));
+    if(!work->pollOnly)row=static_cast<char*>(malloc(upload::CsvRowCapacity));
     doc=new(std::nothrow) DynamicJsonDocument(4096);
-    ok=line&&row&&doc&&doc->capacity()>=4096;
+    ok=line&&(work->pollOnly||row)&&doc&&doc->capacity()>=4096;
     if(!ok)status("Upload memory unavailable; try after restart");
   }
   if(ok) {StorageLock lock;ok=SD.mkdir(root);if(!ok)status("Upload staging unavailable");}
@@ -353,9 +403,14 @@ void worker(void* argument) {
       if(isFile&&n>6&&!strcmp(path+n-6,".jsonl"))processSession(*work,path,line,row,*doc);
     }
     closeFile(directory);
+    if(!stopped()&&!work->resultReported) {
+      status(work->pollOnly?"No pending upload jobs":work->alreadyProcessed&&!work->skippedFiles?
+        "No new data; already processed":"No eligible data; nothing uploaded");
+    }
   } else if(radioReady&&!stopped()) {
     const unsigned failures=associationFailures.fetch_add(1)+1;
-    if(failures<3)for(int service=0;service<3;++service)if(work->mask&(1U<<service))scheduleRetry(service,upload::retryDelay(failures));
+    if(failures<3)for(int service=0;service<3;++service)if(work->mask&(1U<<service)){
+      if(work->pollOnly||(work->pollMask&(1U<<service)))scheduleJobPoll(service,upload::retryDelay(failures));else scheduleRetry(service,upload::retryDelay(failures));}
   }
   WiFi.disconnect(false,false);
   if(stopped())status("Upload cancelled; local logs retained");
@@ -375,14 +430,14 @@ void worker(void* argument) {
   // clear any such retry while busy still prevents a new worker/reset. This
   // sequentially consistent read orders against uploaderCancel: a later cancel
   // clears the state itself, with no worker scheduling left to race against it.
-  if(cancelled.load()) { retryMask=0;nextRetry=0; }
+  if(cancelled.load()) { retryMask=jobPollMask=0;nextRetry=nextJobPoll=0; }
   busy=false;vTaskDelete(nullptr);
 }
 }
 bool uploaderBegin(){bootId=esp_random();initialPending=true;Preferences prefs;if(prefs.begin("lt-upload",true)){settingsEpoch=prefs.getUInt("epoch",1);prefs.end();}return true;}
 bool uploaderBusy(){return busy.load();}
 void uploaderCancel(){
-  cancelled=true;requests=0;retryMask=0;nextRetry=0;initialPending=false;
+  cancelled=true;requests=0;retryMask=jobPollMask=0;nextRetry=nextJobPoll=0;initialPending=false;
   // Consume this idle-entry trigger even if a settings page delayed automatic
   // scheduling. A subsequent capture/non-idle tick enables the next idle entry.
   wasIdle=true;
@@ -390,7 +445,7 @@ void uploaderCancel(){
 void uploaderStatus(char* destination,size_t capacity){if(!destination||!capacity)return;portENTER_CRITICAL(&statusMux);strlcpy(destination,statusText,capacity);portEXIT_CRITICAL(&statusMux);}
 void uploaderConfigChanged(){
   Preferences prefs;if(prefs.begin("lt-upload",false)){const uint32_t next=settingsEpoch+1;if(prefs.putUInt("epoch",next)==sizeof(next))settingsEpoch=next;prefs.end();}
-  authBlocked=0;associationFailures=0;initialPending=true;retryMask=0;nextRetry=0;
+  authBlocked=0;associationFailures=0;initialPending=true;retryMask=jobPollMask=0;nextRetry=nextJobPoll=0;
 }
 bool uploaderRequest(int service) {
   if(service< -1||service>2||busy||!storageReady())return false;
@@ -399,7 +454,7 @@ bool uploaderRequest(int service) {
   if(!valid){status("Configure home Wi-Fi and service API keys");return false;}
   associationFailures=0;authBlocked.fetch_and(~valid);requests.fetch_or(valid);return true;
 }
-void uploaderTick(bool idle,bool allowAutomatic) {
+void uploaderTick(bool idle,bool allowAutomatic,bool allowJobPolling) {
   if(!idle){wasIdle=false;return;}if(busy)return;
   const unsigned manual=requests.exchange(0);unsigned mask=manual;
   if(allowAutomatic) {
@@ -407,11 +462,16 @@ void uploaderTick(bool idle,bool allowAutomatic) {
     const uint32_t due=nextRetry.load();if(due&&int32_t(millis()-due)>=0){mask|=retryMask.exchange(0);nextRetry=0;}
     wasIdle=true;
   }
+  // Job GETs may continue on the Uploads status page, but editing/Power and
+  // non-idle capture gates retain pending work without launching any network.
+  unsigned polls=0;const uint32_t pollDue=nextJobPoll.load();
+  if((allowAutomatic||allowJobPolling)&&pollDue&&int32_t(millis()-pollDue)>=0){polls=jobPollMask.exchange(0);nextJobPoll=0;}
+  const bool pollOnly=!mask&&polls;const unsigned pollMask=polls&~mask;mask|=polls;
   mask&=~authBlocked.load();
   for(int i=0;i<3;++i)if((mask&(1U<<i))&&!credentials(config,i))mask&=~(1U<<i);
   if(!mask||!storageReady())return;
   Work* work=new(std::nothrow) Work;if(!work){status("Upload task allocation failed");return;}
-  work->settings=config;work->mask=mask;work->manual=manual;work->epoch=settingsEpoch;cancelled=false;busy=true;
+  work->settings=config;work->mask=mask;work->manual=manual;work->epoch=settingsEpoch;work->pollOnly=pollOnly;work->pollMask=pollMask;cancelled=false;busy=true;
   if(xTaskCreatePinnedToCore(worker,"upload",16384,work,1,nullptr,0)!=pdPASS){busy=false;memset(&work->settings,0,sizeof(work->settings));delete work;status("Upload worker unavailable");}
 }
 }

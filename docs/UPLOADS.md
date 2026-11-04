@@ -1,10 +1,10 @@
 # Home Wi-Fi uploads
 
 LORA Tunnel can send eligible records from completed native SD sessions to
-WiGLE, Wardrift.net, and WDGWars. Configure **Settings → Connection keys**,
-then enable each destination under **Settings → Automatic uploads**. Automatic
+WiGLE, Wardrift.net, and WDGWars. Configure **Settings â†’ Connection keys**,
+then enable each destination under **Settings â†’ Automatic uploads**. Automatic
 uploads are off by default, including when an older configuration already has
-API credentials. A Wi-Fi password may be blank for an open network, 8–63
+API credentials. A Wi-Fi password may be blank for an open network, 8â€“63
 characters, or a 64-digit hexadecimal key. SSIDs are limited to 32 bytes.
 
 WiGLE uses its API name and API token; Wardrift and WDGWars each use their own
@@ -24,7 +24,23 @@ through the keyboard or an SD-card editor.
 Automatic work starts only while capture is stopped and the logger has closed
 its session, at startup or after a completed capture. Editing connection keys
 suppresses automatic work. The firmware never pauses a capture to connect to
-Wi-Fi. **Upload now** starts a selected service manually while stopped.
+Wi-Fi. **Upload now** starts a selected service manually while stopped, even
+when that service's automatic switch is off. The Cardputer Uploads menu uses
+three pages and shows the worker status and setting-save/refusal notice on
+separate lines. New automatic uploads wait while that status page is open.
+
+A WDGWars job already submitted during this boot can continue polling on the
+Uploads page while capture is stopped. This continuation performs only GET
+requests for valid persisted jobs; it does not stage another CSV or submit a
+new session. Connection-key editing, Power, capture and cancellation suppress
+that continuation. Pending jobs normally wait 30 seconds between polls;
+explicit **Upload now: WDGWars** can request a check sooner.
+
+If the device restarts with **WDGWars automatic: OFF**, use **Upload now:
+WDGWars** to rediscover a saved pending job. Opening its status page alone does
+not start a network request after reboot. The manual action polls the saved
+job instead of resubmitting its CSV. With automatic uploads enabled, ordinary
+idle scheduling also rediscovers saved jobs.
 
 The worker associates only with the configured home SSID. It uploads through
 HTTPS with the pinned ESP-IDF full certificate bundle and hostname validation;
@@ -40,8 +56,8 @@ timeouts; physical cancellation responsiveness still needs measurement.
 also requests cancellation and waits for the worker to release network/storage
 ownership. A request already received by a server cannot be recalled. Device
 status distinguishes an uncertain receipt from an accepted upload. Cancel also
-clears pending retries for the current idle period, including retries scheduled
-during a result-checkpoint write. Leaving the Uploads page after cancellation
+clears pending upload retries and job polls for the current idle period, including
+retries scheduled during a result-checkpoint write. Leaving the Uploads page after cancellation
 does not restart the worker. Enabled services become eligible again after a
 later capture is stopped, a configuration change, a manual request, or reboot.
 
@@ -86,6 +102,12 @@ third-party JSONL is accepted on-device.
 Each staged CSV is at most 1 MiB, below Wardrift's documented 10 MiB request
 limit. A larger session is split deterministically into several chunks. A
 session with no eligible rows is marked skipped locally without an HTTP upload.
+Its whole-file summary is also `skipped`, and the UI reports **No eligible data;
+nothing uploaded**. Previously processed data reports **No new data; already
+processed**; an obsolete polling trigger with no pending jobs reports **No
+pending upload jobs**. These are local outcomes, not service receipts. Older
+checkpoints that marked an empty whole file locally complete remain compatible,
+but do not produce a new accepted-upload message.
 
 ## Receipts, retries, and recovery
 

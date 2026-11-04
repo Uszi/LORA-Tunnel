@@ -12,6 +12,7 @@
 #include <driver/gpio.h>
 #include <driver/rtc_io.h>
 #include <esp_sleep.h>
+#include <esp_heap_caps.h>
 #include <cmath>
 
 namespace {
@@ -19,6 +20,7 @@ namespace {
 SPIClass peripheralBus(FSPI);
 m5::PI4IOE5V6408_Class capIo(board::CAP_IO_ADDRESS, 400000, &m5::In_I2C);
 bool capReady = false;
+bool audioReady = false;
 bool keyboardReady = false;
 bool initialized = false, hardwareReady = false;
 uint32_t lastKeyboardPoll = 0;
@@ -107,7 +109,7 @@ bool begin() {
   cfg.led_brightness = 0;
   M5Cardputer.begin(cfg, true);
   // Short alert tones need a bounded audio queue. Preserve M5's ADV codec,
-  // sample rate and pins; this also sizes its lazily created playback stack.
+  // sample rate and pins; this also sizes its playback stack.
   auto speaker = M5.Speaker.config();
   speaker.dma_buf_len = 128;
   speaker.dma_buf_count = 4;
@@ -115,6 +117,10 @@ bool begin() {
   M5.Display.setRotation(board::DISPLAY_ROTATION);
   M5.Display.setBrightness(150);
   M5.Speaker.setVolume(64);
+  const uint32_t audioBefore=ESP.getFreeHeap();
+  audioReady=M5.Speaker.begin(); // Allocate I2S/task once, before capture and BLE.
+  Serial.printf("LT AUDIO ready=%d before=%u after=%u min=%u\n",audioReady,audioBefore,ESP.getFreeHeap(),
+      heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT));
   keyboardReady = keyboardConfigured();
   // Configure the U214 antenna-switch supply low until RadioLib is ready.
   // Missing U214 is a visible fault; it is not treated as an older U201 cap.
@@ -166,7 +172,12 @@ uint8_t navigationButtons() {
   return 0;
 }
 
-void beep() { M5.Speaker.tone(2200, 65); }
+bool alertAudioReady() { return audioReady; }
+void alertTone(uint16_t frequencyHz, uint16_t durationMs) {
+  if(!audioReady)return;
+  if(!frequencyHz || !durationMs)M5.Speaker.stop(0);
+  else M5.Speaker.tone(frequencyHz,durationMs,0,true);
+}
 
 float batteryVolts() {
   const float volts = M5.Power.getBatteryVoltage() * 0.001f *

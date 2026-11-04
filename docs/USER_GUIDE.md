@@ -71,7 +71,7 @@ Recon uses passive Wi-Fi/BLE observations and stops LoRa. Only enabled-category 
 
 Evidence grades are **weak indicator**, **medium evidence** and **strong signature**. They describe matched broadcast evidence, not probabilities, authenticated identities or recording activity. A vendor prefix may cover several product families. An Apple manufacturer identifier alone does not establish an AirTag. Remote ID positions are self-reported, separate from receiver GPS, and do not prove the operator's current location. [Detection rules, provenance and limits](RECON.md).
 
-**MUTE / SOUND** changes the current buzzer setting in RAM. Reboot restores the SD setting. The defaults display low-or-higher evidence and alert on medium-or-higher evidence. Alerts also require a winning rule that permits alerts; cooldowns limit repetition. Enabled-category matches can be logged below the display threshold. An omitted `recon.categories` enables all categories; an empty array enables none.
+**MUTE / SOUND** changes the current buzzer setting in RAM. Reboot restores the SD setting. The defaults display low-or-higher evidence and alert on medium-or-higher evidence. In current source, alerts require a winning rule that permits them and active Recon capture. Each observed identity receives one short motif per explicit Recon session; waiting, display-cache eviction and mute/unmute do not replay it. Stop, mode change, mute and sleep cancel sound. The separate 128-identity history suppresses new audio when full. [Original detection sounds and limits](ALERTS.md). Enabled-category matches can be logged below the display threshold. An omitted `recon.categories` enables all categories; an empty array enables none.
 
 ## Touchscreen, buttons and keyboard
 

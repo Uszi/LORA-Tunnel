@@ -86,6 +86,10 @@ def evaluate(samples, serial_result, seconds, *, observation=None, expected_app_
                 metrics[name + "_last_window_mean"] = round(last, 1)
                 metrics[name + "_window_change"] = round(last - first, 1)
     checks["errors"] = complete and all(s["errors"] == samples[0]["errors"] for s in samples)
+    checks["allocation_reporting"] = bool(samples) and all(s.get("alloc_hook") == 1 for s in samples)
+    checks["allocation_failures"] = bool(samples) and all(s.get("alloc_fail") == 0 for s in samples)
+    if samples and all("alloc_fail" in s for s in samples):
+        metrics["reported_heap_allocation_failure_seen"] = max(s["alloc_fail"] for s in samples)
     # No raw serial lines, arbitrary fields, credentials, or capture records.
     observation_keys = ("result", "strict", "elapsed_seconds", "valid_status", "malformed_status",
                         "oversize_lines", "other_lines_omitted", "max_status_gap_seconds",
@@ -102,6 +106,7 @@ def evaluate(samples, serial_result, seconds, *, observation=None, expected_app_
                 "free_heap_sampled_min": "Smallest observed point sample; cannot rule out a lower value between polls.",
                 "task_stack": "FreeRTOS lifetime high-water margins in bytes for the loop and writer tasks, not every task or only this interval.",
                 "ui": "Dispatch-to-presentation frame samples: p95 is the last 64 frames and max is since UI initialization. Sampled rolling p95 is not a whole-run percentile; multiple keys may coalesce into one frame.",
+                "allocation_failures": "Latched public heap allocator failure since setup registration; excludes earlier startup, direct internal allocation and private pool exhaustion.",
                 "errors": "No increase or decrease relative to the first sample; pre-existing errors are retained explicitly as the baseline.",
             },
             "samples": samples,

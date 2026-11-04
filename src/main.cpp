@@ -14,10 +14,17 @@
 #include "shutdown_guard.h"
 #include "resource_memory.h"
 #include "uploader.h"
+#include "alert_tones.h"
 
 using namespace tunnel;
 namespace {
 ui::Model model;
+DRAM_ATTR std::atomic<uint32_t> heapAllocationFailureSeen{0};
+bool allocationHookReady=false;
+void IRAM_ATTR allocationFailed(size_t,uint32_t,const char*) {
+  // A latch needs only one aligned store, avoiding Xtensa atomic RMW helpers.
+  heapAllocationFailureSeen.store(1,std::memory_order_relaxed);
+}
 bool ready=false,stopping=false,hardwareReady=false;
 bool startAfterUpload=false;
 bool initWriter=false,initScanner=false,initMemory=false;
@@ -27,7 +34,10 @@ uint32_t shutdownAt=0,shutdownErrors=0,shutdownDrops=0;
 esp_timer_handle_t shutdownTimer=nullptr;
 bool quietActive=false,quietRadios=false,quietDisplay=false;
 esp_timer_handle_t quietTimer=nullptr;
-uint32_t totals[3]{},lastBeep=0,reconTotal=0;
+uint32_t totals[3]{},lastAlert=0,reconTotal=0;
+alerts::Scheduler alertPlayer(hw::alertTone);
+alerts::AlertHistory alertHistory;
+bool alertHistoryNotice=false;
 StaticQueue_t captureQueueControl;
 uint8_t* captureQueueStorage=nullptr;
 struct Action { ui::Action action; int field; char value[128]{}; };
@@ -36,11 +46,11 @@ struct Summary {
   bool used=false;
   Kind kind=Kind::Wifi;
   uint8_t addressType=255;
-  char id[24]{},name[40]{},label[32]{},evidence[128]{};
+  char id[24]{},name[40]{},label[32]{},evidence[board::SUMMARY_EVIDENCE_BYTES]{};
   recon::Category category=recon::Category::None;
   recon::Confidence confidence=recon::Confidence::None;
   int rssi=0;
-  uint32_t seen=0,alertAt=0;
+  uint32_t seen=0;
   uint64_t last=0;
 };
 Summary summaries[board::SUMMARY_RECORDS];
@@ -50,6 +60,28 @@ void callback(ui::Action action,int field,const char* value) {
   strlcpy(request.value,value,sizeof(request.value));
   if(xQueueSend(actions,&request,0)!=pdTRUE) strlcpy(model.notice,"Busy: please try again",sizeof(model.notice));
   memset(request.value,0,sizeof(request.value));
+}
+void emitDetectionAlert(const Observation& event,bool allowed,uint32_t now) {
+  // Drain/Stop can still consume queued evidence; that must never start audio.
+  if(!capturing.load() || captureMode.load()!=CaptureMode::Recon || !model.recon ||
+     shutdownPending || quietActive || !config.buzzer || !hw::alertAudioReady() ||
+     event.mode!=CaptureMode::Recon || !allowed ||
+     unsigned(event.detection.confidence)<config.recon_alert_min)return;
+  const auto seen=alertHistory.check(uint8_t(event.kind),event.address_type,event.address);
+  if(seen==alerts::HistoryStatus::Full && !alertHistoryNotice) {
+    strlcpy(model.notice,"Alert history full; capture continues",sizeof(model.notice));
+    alertHistoryNotice=true;
+  }
+  if(seen!=alerts::HistoryStatus::Unseen || (lastAlert && now-lastAlert<1000))return;
+  if(alertPlayer.request(event.detection,now)) {
+    alertHistory.remember(uint8_t(event.kind),event.address_type,event.address);
+    lastAlert=now;
+  }
+}
+void serviceAlerts() {
+  alertPlayer.setEnabled(capturing.load() && captureMode.load()==CaptureMode::Recon &&
+      model.recon && config.buzzer && hw::alertAudioReady() && !shutdownPending && !quietActive);
+  alertPlayer.tick(millis());
 }
 void consume(Observation& event) {
   if(event.session!=sessionId.load()) return;
@@ -110,11 +142,7 @@ void consume(Observation& event) {
     selected->confidence=event.detection.confidence;
     strlcpy(selected->label,event.detection.label,sizeof(selected->label));
     strlcpy(selected->evidence,event.detection.evidence,sizeof(selected->evidence));
-    const uint32_t now=millis();
-    if(config.buzzer && alertAllowed && unsigned(event.detection.confidence)>=config.recon_alert_min &&
-       (selected->alertAt==0 || now-selected->alertAt>=30000) && now-lastBeep>=1000) {
-      hw::beep(); selected->alertAt=lastBeep=now;
-    }
+    emitDetectionAlert(event,alertAllowed,millis());
   }
 }
 void drain(unsigned limit=48) {
@@ -138,6 +166,7 @@ void requestSession() {
   if(shutdownPending) { strlcpy(model.notice,"Shutdown in progress",sizeof(model.notice)); return; }
   if(quietActive) { strlcpy(model.notice,"GNSS quiet test; restart to capture",sizeof(model.notice)); return; }
   if(capturing.load()) {
+    alertPlayer.setEnabled(false);
     endCapture();
     scannersStop();
     drain();
@@ -161,11 +190,14 @@ void requestSession() {
   memset(totals,0,sizeof(totals));
   reconTotal=0;
   for(auto& summary:summaries) summary=Summary{};
+  if(mode==CaptureMode::Recon) {alertHistory.reset();alertHistoryNotice=false;lastAlert=0;}
   startCapture(id,mode);
+  serviceAlerts();
   scannersStart(); model.notice[0]=0;
 }
 void selectMode(bool recon) {
   if(model.recon==recon) return;
+  alertPlayer.setEnabled(false);
   // A mode switch closes the previous session before a new Start is accepted.
   // Its stop marker still uses captureMode, not the newly displayed selection.
   if(capturing.load()) requestSession();
@@ -201,7 +233,10 @@ void performActions() {
     case ui::Action::CancelUpload: uploaderCancel(); startAfterUpload=false; break;
     case ui::Action::ToggleSession: requestSession(); break;
     case ui::Action::ToggleMode: selectMode(action.field==1); break;
-    case ui::Action::ToggleAlerts: config.buzzer=action.field==1; break;
+    case ui::Action::ToggleAlerts:
+      config.buzzer=action.field==1;
+      if(!config.buzzer)alertPlayer.setEnabled(false);
+      break;
     case ui::Action::SaveRegion:
       if(capturing || stopping || !loggerIdle() || uploaderBusy()) strlcpy(model.notice,"Stop and save before changing region",sizeof(model.notice));
       else if(xSemaphoreTake(busMutex,pdMS_TO_TICKS(300))!=pdTRUE)
@@ -217,6 +252,7 @@ void performActions() {
       }
       break;
     case ui::Action::Shutdown:
+      alertPlayer.setEnabled(false);
       if(!shutdownPending) {
         uploaderCancel(); startAfterUpload=false;
         shutdownHadSession=capturing.load() || stopping || !loggerIdle();
@@ -304,7 +340,7 @@ void refreshModel() {
 }
 void serialStatus() {
   const auto fix=currentFix();
-  Serial.printf("LT STATUS version=%s target=%s uptime_ms=%lu ready=%d running=%d saving=%d sd=%d touch=%d lora=%d gps_chars=%lu gps_fix=%d sats=%u wifi=%lu ble=%lu lora_rx=%lu drops=%lu errors=%lu free_heap=%u mode=%s matches=%lu free_psram=%u quiet=%d min_internal=%u largest_internal=%u loop_stack=%u writer_stack=%lu ui_p95_ms=%lu ui_max_ms=%lu ui_samples=%lu upload=%d input_ok=%d cap_ok=%d init_writer=%d init_scanner=%d init_memory=%d scanner_stage=%s heap_hw=%lu heap_ui=%lu heap_config=%lu heap_before_scan=%lu\n",
+  Serial.printf("LT STATUS version=%s target=%s uptime_ms=%lu ready=%d running=%d saving=%d sd=%d touch=%d lora=%d gps_chars=%lu gps_fix=%d sats=%u wifi=%lu ble=%lu lora_rx=%lu drops=%lu errors=%lu free_heap=%u mode=%s matches=%lu free_psram=%u quiet=%d min_internal=%u largest_internal=%u loop_stack=%u writer_stack=%lu ui_p95_ms=%lu ui_max_ms=%lu ui_samples=%lu upload=%d input_ok=%d cap_ok=%d init_writer=%d init_scanner=%d init_memory=%d scanner_stage=%s heap_hw=%lu heap_ui=%lu heap_config=%lu heap_before_scan=%lu audio_ok=%d tone_active=%d alerted=%u alert_full=%d alloc_hook=%d alloc_fail=%lu\n",
     TUNNEL_VERSION,board::TARGET_ID,(unsigned long)millis(),ready,capturing.load(),stopping,storageReady(),hw::touchPresent(),loraReady(),gnssCharacters(),fix.valid,fix.satellites,
     (unsigned long)totals[0],(unsigned long)totals[1],(unsigned long)totals[2],
     (unsigned long)(counters.ingress_drops.load()+counters.log_drops.load()),
@@ -314,7 +350,7 @@ void serialStatus() {
     heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT),
     unsigned(uxTaskGetStackHighWaterMark(nullptr)),(unsigned long)loggerStackMargin(),
     (unsigned long)ui::inputLatencyP95Ms(),(unsigned long)ui::inputLatencyMaxMs(),(unsigned long)ui::inputLatencySamples(),uploaderBusy(),hw::inputReady(),hw::loraFrontendPresent(),initWriter,initScanner,initMemory,scannersInitStage(),
-    (unsigned long)heapAfterHardware,(unsigned long)heapAfterUi,(unsigned long)heapAfterConfig,(unsigned long)heapBeforeScanners);
+    (unsigned long)heapAfterHardware,(unsigned long)heapAfterUi,(unsigned long)heapAfterConfig,(unsigned long)heapBeforeScanners,hw::alertAudioReady(),alertPlayer.active(),unsigned(alertHistory.size()),alertHistory.full(),allocationHookReady,(unsigned long)heapAllocationFailureSeen.load(std::memory_order_relaxed));
 }
 void shutdownCancelled(const char* reason) {
   shutdownPending=false; model.shutting_down=false;
@@ -372,6 +408,7 @@ void enterQuietTest(unsigned seconds=90) {
   if(esp_timer_start_once(quietTimer,uint64_t(seconds)*1000000)!=ESP_OK) {
     Serial.println("LT QUIET refused=1 reason=timer_unavailable"); return;
   }
+  alertPlayer.setEnabled(false);
   quietActive=true;
   Serial.printf("LT QUIET active=1 seconds=%u shutting_down=1\n",seconds);
   quietRadios=scannersEnterQuiet();
@@ -405,6 +442,10 @@ void serialCommands() {
         else if(!strcmp(command,"tunnel start")) { if(!capturing.load()) requestSession(); serialStatus(); }
         else if(!strcmp(command,"tunnel stop")) { if(capturing.load()) requestSession(); serialStatus(); }
         else if(!strcmp(command,"tunnel status")) serialStatus();
+        else if(!strcmp(command,"tunnel heap")) {
+          if(capturing.load() || stopping || uploaderBusy()) Serial.println("LT HEAP refused=1 reason=stop_and_save_first");
+          else { Serial.println("LT HEAP per_region=1"); heap_caps_print_heap_info(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT); }
+        }
         else if(!strcmp(command,"tunnel recon")) { selectMode(true); serialStatus(); }
         else if(!strcmp(command,"tunnel drive")) { selectMode(false); serialStatus(); }
         else if(!strcmp(command,"tunnel gps-warm") || !strcmp(command,"tunnel gps-cold") ||
@@ -440,6 +481,7 @@ void serialCommands() {
 }
 
 void setup() {
+  allocationHookReady=heap_caps_register_failed_alloc_callback(allocationFailed)==ESP_OK;
   Serial.begin(115200); // No wait for USB: standalone boot is mandatory.
   busMutex=xSemaphoreCreateMutex(); actions=xQueueCreate(4,sizeof(Action));
   captureQueueStorage=static_cast<uint8_t*>(allocatePayload(board::CAPTURE_RECORDS*sizeof(CaptureObservation)));
@@ -469,6 +511,7 @@ void setup() {
   else if(!displayOK) strlcpy(model.notice,"Hardware/display initialization failed",sizeof(model.notice));
   if(!memoryOK) strlcpy(model.notice,"Memory mismatch: verify target",sizeof(model.notice));
   if(!hw::inputReady()) strlcpy(model.notice,"Input hardware unavailable",sizeof(model.notice));
+  else if(config.buzzer&&!hw::alertAudioReady())strlcpy(model.notice,"Audio unavailable; capture works",sizeof(model.notice));
   if(configAllocationFailed) strlcpy(model.notice,"Config memory unavailable; check SD",sizeof(model.notice));
   else if(rulesLoadFailed) strlcpy(model.notice,"Custom rules failed; check SD file",sizeof(model.notice));
   if(!regionHardwareCompatible()) strlcpy(model.notice,"Region outside cap band; LoRa off",sizeof(model.notice));
@@ -481,7 +524,9 @@ void setup() {
 void loop() {
   if(!hardwareReady) { serialCommands(); delay(10); return; }
   if(quietActive) { gnssTick(); serialCommands(); delay(5); return; }
+  serviceAlerts();
   gnssTick(); scannersTick(); drain(8); performActions(); serialCommands();
+  serviceAlerts();
   if(quietActive) { delay(5); return; }
   // Always drain the debounce state, even when navigation is disabled in config.
   ui::navigation(hw::navigationButtons(),model);
@@ -506,7 +551,7 @@ void loop() {
   static uint32_t lastBattery=0;
   if(millis()-lastBattery>5000) { model.battery=hw::batteryVolts(); lastBattery=millis(); }
   if(startAfterUpload && !uploaderBusy()) { startAfterUpload=false; requestSession(); }
-  uploaderTick(ready && !capturing.load() && !stopping && loggerIdle() && !shutdownPending && !startAfterUpload,ui::allowsBackgroundUpload());
+  uploaderTick(ready && !capturing.load() && !stopping && loggerIdle() && !shutdownPending && !startAfterUpload,ui::allowsBackgroundUpload(),ui::allowsUploadJobPolling());
   refreshModel();
   if(!board::DISPLAY_SHARED_WITH_SD) ui::tick(model);
   else if(xSemaphoreTake(busMutex,0)==pdTRUE) { ui::tick(model); xSemaphoreGive(busMutex); }

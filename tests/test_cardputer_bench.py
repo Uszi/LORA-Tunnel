@@ -14,7 +14,7 @@ from test_bench_serial import FakeClock, FakeSerial, status
 class AcceptanceTests(unittest.TestCase):
     def samples(self):
         return [dict(version="0.4.0-beta.1", target=bench.TARGET, ready=1, running=1,
-                     saving=0, sd=1, upload=0, touch=0, lora=1, gps_chars=i, sats=4,
+                     saving=0, sd=1, upload=0, touch=0, lora=1, gps_chars=i, sats=4, alloc_hook=1, alloc_fail=0,
                      wifi=i, ble=i, free_heap=41000, uptime_ms=1000+i*1000,
                      min_internal=40000, largest_internal=20000, loop_stack=2048,
                      writer_stack=2048, ui_samples=i, ui_p95_ms=80, ui_max_ms=200,
@@ -57,6 +57,20 @@ class AcceptanceTests(unittest.TestCase):
         self.assertEqual(bench.evaluate(self.samples(), 0, 60, observation=self.observation())["result"], "failed")
         self.assertEqual(bench.evaluate([], 1, 1800)["result"], "failed")
         self.assertEqual(bench.evaluate(self.samples(), 0, 1800)["result"], "failed")
+
+    def test_allocation_reporting_and_any_failure_are_required(self):
+        for field in ("alloc_hook", "alloc_fail"):
+            samples = self.samples()
+            del samples[300][field]
+            self.assertEqual(self.evaluate(samples)["result"], "failed")
+        samples = self.samples()
+        samples[400]["alloc_hook"] = 0
+        self.assertEqual(self.evaluate(samples)["result"], "failed")
+        samples = self.samples()
+        samples[400]["alloc_fail"] = 1
+        result = self.evaluate(samples)
+        self.assertEqual(result["result"], "failed")
+        self.assertEqual(result["metrics"]["reported_heap_allocation_failure_seen"], 1)
 
     def test_error_spike_reset_and_version_change_fail(self):
         for field, value in (("errors", 1), ("drops", 2), ("ui_samples", 0),

@@ -190,7 +190,7 @@ def copy_assets(sources, output):
 def render_guides(sources, output, version, commit, github):
     guides = {"README.md": "README.html", "sdcard/README.md": "SD_SETUP.html"}
     guides.update({"docs/" + name + ".md": name + ".html"
-                   for name in (*GUIDES, "CARDPUTER_ADV", "CARDPUTER_RELEASE", "CARDPUTER_TEST_PROCEDURE", "CARDPUTER_SOFTWARE_VALIDATION", "UPLOADS")
+                   for name in (*GUIDES, "CARDPUTER_ADV", "CARDPUTER_RELEASE", "CARDPUTER_TEST_PROCEDURE", "CARDPUTER_SOFTWARE_VALIDATION", "UPLOADS", "ALERTS")
                    if "docs/" + name + ".md" in sources})
     (output / "guides").mkdir(parents=True, exist_ok=True)
     for source, dest in guides.items():

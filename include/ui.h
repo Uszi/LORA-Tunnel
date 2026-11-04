@@ -36,5 +36,6 @@ uint32_t inputLatencyP95Ms();
 uint32_t inputLatencyMaxMs();
 uint32_t inputLatencySamples();
 bool allowsBackgroundUpload();
+bool allowsUploadJobPolling();
 void tick(const Model& model);
 }

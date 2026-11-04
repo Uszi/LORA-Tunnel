@@ -1,7 +1,8 @@
 """Run real upload/session code with offline SD, HTTPS and BLE lifecycle adapters.
 
 Checks scheduling, streaming, checkpoints, memory/transition failures and the
-actual session-start capture gate. No live service or device is contacted.
+actual session-start capture gate and alert lifecycle with the real scheduler.
+No live service or device is contacted.
 """
 from pathlib import Path
 import os
@@ -32,7 +33,23 @@ def request_session_body():
     marker = extract_body(source, "__attribute__((noinline)) bool logSessionMarker(Kind kind,CaptureMode mode,uint32_t id) {")
     start = extract_body(source, "void requestSession() {")
     stop = extract_body(source, "  if(stopping) {")
-    return marker + start + "void serviceStopMarker() {\n" + stop + "}\n"
+    alerts = extract_body(source, "void emitDetectionAlert(const Observation& event,bool allowed,uint32_t now) {")
+    service = extract_body(source, "void serviceAlerts() {")
+    mode = extract_body(source, "void selectMode(bool recon) {")
+    actions = []
+    for name, following in [("ToggleAlerts", "SaveRegion"), ("Shutdown", "RetryStorage")]:
+        first = "    case ui::Action::" + name + ":"
+        last = "    case ui::Action::" + following + ":"
+        if source.count(first) != 1 or source.count(last) != 1:
+            raise RuntimeError("Alert action extraction boundary changed: " + name)
+        begin, end = source.index(first), source.index(last)
+        if end <= begin:
+            raise RuntimeError("Alert action order changed: " + name)
+        actions.append(source[begin:end])
+    dispatch = ("void performAlertAction(ui::Action wanted,int field=0) {\n"
+                "  struct {int field;} action{field};\n  switch(wanted) {\n" +
+                "".join(actions) + "  default: break;\n  }\n}\n")
+    return alerts + service + marker + start + mode + dispatch + "void serviceStopMarker() {\n" + stop + "}\n"
 
 
 def check() -> str:
@@ -46,7 +63,8 @@ def check() -> str:
         base = [cxx, "-std=c++14", "-O1", "-Wall", "-Wextra", "-DARDUINOJSON_ENABLE_ARDUINO_STREAM=0",
                 "-DARDUINOJSON_ENABLE_ARDUINO_STRING=0", "-DARDUINOJSON_ENABLE_ARDUINO_PRINT=0",
                 "-I", str(ROOT / "tests/upload_host"), "-I", str(ROOT / "include"),
-                "-I", str(dependencies[0].parent), "-I", str(directory)]
+                "-I", str(dependencies[0].parent), "-I", str(directory),
+                "-I", str(ROOT / "lib/recon/src")]
         if os.name == "nt":
             base += ["-static-libgcc", "-static-libstdc++"]
         environment = os.environ.copy()
@@ -57,7 +75,10 @@ def check() -> str:
                 ("Heltec", "uploader.cpp", []),
                 ("Session", "request_session.cpp", [])]:
             binary = directory / (name + (".exe" if os.name == "nt" else ""))
-            args = base + flags + [str(ROOT / "tests/upload_host" / source), "-o", str(binary)]
+            args = base + flags + [str(ROOT / "tests/upload_host" / source)]
+            if name == "Session":
+                args += [str(ROOT / "src/alert_tones.cpp")]
+            args += ["-o", str(binary)]
             subprocess.run(args, cwd=ROOT, check=True, env=environment)
             result = subprocess.run([str(binary)], cwd=ROOT, check=True, capture_output=True, text=True, env=environment)
             results.append(name + ": " + result.stdout.strip())

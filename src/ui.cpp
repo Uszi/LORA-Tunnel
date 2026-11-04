@@ -656,6 +656,7 @@ uint32_t inputLatencyP95Ms() { return 0; }
 uint32_t inputLatencyMaxMs() { return 0; }
 uint32_t inputLatencySamples() { return 0; }
 bool allowsBackgroundUpload() { return page != Page::Keyboard; }
+bool allowsUploadJobPolling() { return allowsBackgroundUpload(); }
 void begin(Handler handler) {
   onAction = handler;
   bootAt = 0;

@@ -63,11 +63,11 @@ void reset(int service=0) {
   host::files.clear();host::directories={"/sessions"};host::failWritePath.clear();host::scripts.clear();host::calls.clear();host::connected=true;host::associations=0;host::afterWrite=nullptr;host::epoch=1;hostMillis=1000;
   if(!host::buffers.empty()||host::activeHttp||host::openFiles)throw std::runtime_error("Previous worker leaked ownership/resources");
   host::createTask=host::bleReady=host::pauseOK=host::restoreOK=host::disconnected=true;
-  host::peakRegularFiles=host::bufferCalls=host::failBufferCall=host::checkpointCancels=0;host::fileHooks().afterFlush=nullptr;
+  host::peakRegularFiles=host::bufferCalls=host::failBufferCall=host::checkpointCancels=0;host::fileHooks().afterFlush=nullptr;host::fileHooks().dynamicDirectory=false;
   host::pauses=host::restores=host::allocation=host::failAllocation=0;host::afterPause=nullptr;
   config=Config{};strlcpy(config.wifi_name,"Synthetic home",128);strlcpy(config.wifi_password,"testpass",128);strlcpy(config.wigle_name,"testname",128);strlcpy(config.wigle_token,"testtoken",128);strlcpy(config.wardrift_token,"testwardrift",128);strlcpy(config.wdgwars_token,"testwdgwars",128);
   config.auto_wigle=service==0;config.auto_wardrift=service==1;config.auto_wdgwars=service==2;
-  busy=false;cancelled=false;requests=retryMask=authBlocked=0;nextRetry=0;associationFailures=0;wasIdle=false;initialPending=true;settingsEpoch=1;
+  busy=false;cancelled=false;requests=retryMask=jobPollMask=authBlocked=0;nextRetry=nextJobPoll=0;associationFailures=0;wasIdle=false;initialPending=true;settingsEpoch=1;
   uploaderBegin();host::files[sourcePath]=session();
 }
 void task(){
@@ -85,9 +85,28 @@ void task(){
 #endif
 }
 void automatic(){tunnel::uploaderTick(true,true);task();}
-void restart(){tunnel::authBlocked=0;tunnel::wasIdle=false;tunnel::uploaderBegin();}
+void restart(){using namespace tunnel;cancelled=false;requests=retryMask=jobPollMask=authBlocked=0;nextRetry=nextJobPoll=0;associationFailures=0;wasIdle=false;uploaderBegin();}
 void manual(int service){expect(tunnel::uploaderRequest(service),"manual request accepted");tunnel::uploaderTick(true,false);task();}
 bool metadataHas(const char* value){for(const auto& item:host::files)if(item.first.find(".json")!=std::string::npos&&item.second.find(value)!=std::string::npos)return true;return false;}
+
+std::string checkpointState(int service,int chunk) {
+  std::string result;uint32_t newest=0;bool found=false;
+  const std::string key="/"+std::to_string(service)+"-"+std::to_string(chunk)+".";
+  for(const auto& item:host::files)if(item.first.find(key)!=std::string::npos){
+    StaticJsonDocument<1024> doc;if(deserializeJson(doc,item.second))continue;
+    const uint32_t gen=doc["generation"]|0U;if(!found||int32_t(gen-newest)>0){found=true;newest=gen;result=doc["state"]|"";}}
+  return result;
+}
+void replaceJobState(const char* state) {
+  using namespace tunnel;
+  for(const auto& item:host::files)if(item.first.find("/2-0.")!=std::string::npos){
+    StaticJsonDocument<1024> doc;expect(!deserializeJson(doc,item.second),"job fixture checkpoint parses");
+    const std::string directory=item.first.substr(0,item.first.rfind('/')),hash=doc["sha256"]|"";
+    const size_t bytes=doc["source_bytes"];Checkpoint cp;expect(loadCheckpoint(directory.c_str(),2,0,hash.c_str(),bytes,cp),"load latest job fixture");
+    expect(setState(directory.c_str(),2,0,hash.c_str(),bytes,cp,state),"persist newer job fixture state");return;
+  }
+  expect(false,"job fixture exists");
+}
 }
 int main() {
   using namespace tunnel;
@@ -123,7 +142,7 @@ int main() {
   reset();host::scripts.push_back({0,"",7,true,false});automatic();for(auto& item:host::files)if(item.first.find("/0-0.")!=std::string::npos)item.second="{partial";restart();automatic();expect(host::calls.size()==1,"corrupt existing checkpoint fails closed");
 
   reset();host::failWritePath=".json";automatic();expect(host::calls.empty(),"SD checkpoint failure prevents network send");
-  reset();host::afterWrite=[](){tunnel::uploaderCancel();};automatic();expect(metadataHas("\"state\":\"uncertain\""),"cancellation after send preserves ambiguity");expect(nextRetry==0&&retryMask==0,"cancel does not schedule itself again");
+  reset();host::afterWrite=[](){tunnel::uploaderCancel();};automatic();expect(metadataHas("\"state\":\"uncertain\""),"cancellation after send preserves ambiguity");expect(nextRetry==0&&retryMask==0&&nextJobPoll==0&&jobPollMask==0,"cancel does not schedule itself again");
 
   reset();expect(uploaderRequest(0),"manual request starts while automatic scheduling is hidden");
   uploaderTick(true,false);uploaderCancel();task();hostMillis+=30001;uploaderTick(true,true);
@@ -146,7 +165,7 @@ int main() {
     };
     automatic();
     expect(host::checkpointCancels==1,"result checkpoint cancellation hook fired exactly once");
-    expect(nextRetry==0&&retryMask==0,"cancelled checkpoint cannot re-arm automatic retry or job polling");
+    expect(nextRetry==0&&retryMask==0&&nextJobPoll==0&&jobPollMask==0,"cancelled checkpoint cannot re-arm automatic retry or job polling");
     expect(metadataHas(service==2?"\"state\":\"job\"":"\"state\":\"retry\""),"cancellation retains the truthful persisted receipt state");
     const auto callsBefore=host::calls.size();hostMillis+=30001;uploaderTick(true,true);
     expect(host::task==nullptr&&!uploaderBusy()&&host::calls.size()==callsBefore,"no automatic worker or request thirty seconds after cancellation");
@@ -169,5 +188,89 @@ int main() {
   reset();host::afterPause=[](){uploaderCancel();};automatic();expect(host::calls.empty()&&host::restores==1&&scannersCaptureReady(),"cancellation during BLE pause restores without sending");
   reset();host::afterWrite=[](){uploaderCancel();};host::restoreOK=false;automatic();expect(!scannersCaptureReady()&&metadataHas("uncertain"),"cancel plus restore failure preserves uncertain receipt and capture gate");
 #endif
+
+  // Empty/no-new work must not retain the association message or imply receipt.
+  reset();host::files[sourcePath]=session(0);automatic();
+  expect(checkpointState(0,-2)=="skipped"&&!metadataHas("\"state\":\"accepted\""),"empty whole-file summary is skipped, never server accepted");
+  expect(std::string(statusText)=="No eligible data; nothing uploaded","empty session has a truthful completion status");
+  restart();automatic();expect(std::string(statusText)=="No new data; already processed","already skipped session reports no new work");
+  reset();host::files.clear();automatic();expect(host::calls.empty()&&std::string(statusText)=="No eligible data; nothing uploaded","empty session directory has a final non-connecting status");
+  reset();automatic();restart();automatic();expect(std::string(statusText)=="No new data; already processed","already accepted data does not fabricate a new receipt");
+  // Older firmware marked empty summaries accepted. Retain checkpoint compatibility
+  // without exposing that local completion state as a newly accepted network receipt.
+  reset();host::files[sourcePath]=session(0);automatic();
+  for(auto& item:host::files)if(item.first.find("/0--2.")!=std::string::npos){
+    const auto at=item.second.find("skipped");if(at!=std::string::npos)item.second.replace(at,7,"accepted");}
+  restart();automatic();expect(host::calls.empty()&&std::string(statusText).find("accepted")==std::string::npos,"legacy empty summary is not a service acceptance claim");
+
+  // Explicit manual WDG request may continue GET polling on the Uploads page
+  // with all automatic services off, but cannot stage or submit new sessions.
+  reset(2);config.auto_wdgwars=false;host::scripts.push_back({202,"{\"job_id\":42}",3,false,false});manual(2);
+  expect(nextJobPoll!=0&&jobPollMask==4&&nextRetry==0&&retryMask==0,"pending job uses bounded separate poll schedule");
+  host::files[staging]="STAGING_SENTINEL";host::files["/sessions/LT-87654321.jsonl"]=session(2);
+  hostMillis+=30001;uploaderTick(false,false,true);expect(!host::task&&jobPollMask==4,"active capture blocks and retains pending poll");
+  uploaderTick(true,false,false);expect(!host::task&&jobPollMask==4,"editing and Power guard block and retain pending poll");
+  host::scripts.push_back({200,"{\"status\":\"done\"}",3,false,false});uploaderTick(true,false,true);task();
+  expect(host::calls.size()==2&&host::calls.back().config.method==HTTP_METHOD_GET&&host::calls.back().body.empty(),"status-page continuation is GET only despite another unuploaded session");
+  expect(host::files[staging]=="STAGING_SENTINEL","poll-only worker never rewrites CSV staging");
+  expect(checkpointState(2,0)=="accepted"&&nextJobPoll==0&&jobPollMask==0,"completed poll persists accepted receipt and stops polling");
+
+  host::files.erase("/sessions/LT-87654321.jsonl");manual(2);
+  expect(host::calls.size()==2&&std::string(statusText)=="No new data; already processed","manually revisiting completed polled chunks reports prior completion without a new receipt");
+
+  // Merging a due poll with a different enabled service must not permit a new
+  // WDG POST when WDG automatic is disabled.
+  reset(2);config.auto_wdgwars=false;host::scripts.push_back({202,"{\"job_id\":42}",3,false,false});manual(2);
+  config.auto_wigle=true;host::files["/sessions/LT-87654321.jsonl"]=session(2);hostMillis+=30001;
+  host::scripts.push_back({200,"{\"success\":true}",3,false,false});
+  host::scripts.push_back({200,"{\"status\":\"done\"}",3,false,false});
+  host::scripts.push_back({200,"{\"success\":true}",3,false,false});automatic();
+  unsigned wdgPosts=0;for(const auto& call:host::calls)if(call.url.find("wdgwars.pl")!=std::string::npos&&call.config.method==HTTP_METHOD_POST)++wdgPosts;
+  expect(wdgPosts==1,"other automatic service cannot turn WDG continuation into unsolicited POST");
+
+  reset(2);config.auto_wdgwars=false;host::scripts.push_back({202,"{\"job_id\":42}",3,false,false});manual(2);
+  config.auto_wigle=true;hostMillis+=30001;host::connected=false;automatic();
+  expect((jobPollMask.load()&4)&&!(retryMask.load()&4),"mixed-service association failure retains GET-only WDG retry classification");
+  host::connected=true;host::files["/sessions/LT-87654321.jsonl"]=session(2);hostMillis+=30001;
+  host::scripts.push_back({200,"{\"success\":true}",3,false,false});host::scripts.push_back({200,"{\"status\":\"done\"}",3,false,false});host::scripts.push_back({200,"{\"success\":true}",3,false,false});automatic();
+  wdgPosts=0;for(const auto& call:host::calls)if(call.url.find("wdgwars.pl")!=std::string::npos&&call.config.method==HTTP_METHOD_POST)++wdgPosts;
+  expect(wdgPosts==1,"association retry cannot convert poll permission into WDG POST permission");
+
+  reset(2);config.auto_wdgwars=false;host::scripts.push_back({202,"{\"job_id\":42}",3,false,false});manual(2);
+  for(auto it=host::files.begin();it!=host::files.end();)if(it->first.find("/2-0.b.json")!=std::string::npos)it=host::files.erase(it);else ++it;
+  host::fileHooks().dynamicDirectory=true;hostMillis+=30001;
+  host::scripts.push_back({200,"{\"status\":\"processing\"}",3,false,false});uploaderTick(true,false,true);task();
+  expect(host::calls.size()==2&&checkpointState(2,0)=="job","mutable FAT iterator cannot immediately repoll a newly created alternate slot");
+  expect(nextJobPoll>hostMillis&&jobPollMask==4,"persisted per-job due preserves thirty-second poll cadence");
+  hostMillis+=30001;host::scripts.push_back({200,"{\"status\":\"done\"}",3,false,false});uploaderTick(true,false,true);task();
+  expect(host::calls.size()==3&&checkpointState(2,0)=="accepted","next due poll completes normally after mutable-directory guard");
+
+  for(const char* terminal:{"accepted","rejected"}) {
+    reset(2);config.auto_wdgwars=false;host::scripts.push_back({202,"{\"job_id\":42}",3,false,false});manual(2);replaceJobState(terminal);
+    host::files[staging]="STAGING_SENTINEL";hostMillis+=30001;uploaderTick(true,false,true);task();
+    expect(host::calls.size()==1&&host::files[staging]=="STAGING_SENTINEL","newest terminal checkpoint supersedes older pending-job slot");
+    expect(std::string(statusText)=="No pending upload jobs","stale pending mask has truthful completion status");
+  }
+  reset(2);config.auto_wdgwars=false;host::scripts.push_back({202,"{\"job_id\":42}",3,false,false});manual(2);
+  replaceJobState("authjob");authBlocked=4;hostMillis+=30001;uploaderTick(true,false,true);
+  expect(!host::task&&host::calls.size()==1,"auth blocked service cannot poll from status page");
+  host::scripts.push_back({200,"{\"status\":\"done\"}",3,false,false});manual(2);
+  expect(host::calls.size()==2&&host::calls.back().config.method==HTTP_METHOD_GET,"manual auth retry polls retained job without reupload");
+
+  reset(2);config.auto_wdgwars=false;host::scripts.push_back({202,"{\"job_id\":42}",3,false,false});manual(2);
+  uploaderCancel();hostMillis+=30001;uploaderTick(true,false,true);expect(!host::task&&nextJobPoll==0&&jobPollMask==0,"cancel clears pending GET schedule on status page");
+  reset(2);config.auto_wdgwars=false;host::scripts.push_back({202,"{\"job_id\":42}",3,false,false});manual(2);
+  hostMillis+=30001;uploaderTick(true,false,true);uploaderCancel();task();
+  expect(host::calls.size()==1&&nextJobPoll==0&&jobPollMask==0,"cancel after poll worker scheduled prevents GET and retry rearm");
+  // Automatic off plus a reboot requires an explicit Upload now to rediscover
+  // old jobs; entering the status page alone never initiates network work.
+  reset(2);config.auto_wdgwars=false;host::scripts.push_back({202,"{\"job_id\":42}",3,false,false});manual(2);restart();hostMillis+=30001;
+  uploaderTick(true,false,true);expect(!host::task&&host::calls.size()==1,"automatic-off persisted job is dormant after reboot until manual request");
+  host::scripts.push_back({200,"{\"status\":\"done\"}",3,false,false});manual(2);
+  expect(host::calls.size()==2&&host::calls.back().config.method==HTTP_METHOD_GET,"manual request after reboot rediscovers persisted job");
+  unsigned parsedChunk=0,parsedSlot=0;
+  expect(checkpointChunk("2-2147483647.b.json",parsedChunk,parsedSlot)&&parsedChunk==2147483647U&&parsedSlot==1,"checkpoint filename parser is bounded");
+  for(const char* name:{"2-2147483648.a.json","2--1.a.json","2-00.a.json","1-0.a.json","2-0.a.json/extra","2-0.a.jsonx"})expect(!checkpointChunk(name,parsedChunk,parsedSlot),"noncanonical checkpoint filename rejected");
+
   std::cout<<"Uploader host: "<<checks<<" checks passed against real worker with mocked SD/TLS transport. No network requests made.\n";
 }

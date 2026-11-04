@@ -6,7 +6,7 @@ extern unsigned openFiles,regularFiles,peakRegularFiles,bufferCalls,failBufferCa
 extern std::map<std::string,std::string> files;
 extern std::vector<std::string> directories;
 extern std::string failWritePath;
-struct FileHooks {void(*afterFlush)(const std::string&)=nullptr;};
+struct FileHooks {void(*afterFlush)(const std::string&)=nullptr;bool dynamicDirectory=false;};
 inline FileHooks& fileHooks(){static FileHooks hooks;return hooks;}
 struct OpenFile {
   explicit OpenFile(bool dir):directory(dir){++openFiles;if(!dir)peakRegularFiles=std::max(peakRegularFiles,++regularFiles);}
@@ -43,7 +43,15 @@ public:
   void flush(){if(handle_&&host::fileHooks().afterFlush)host::fileHooks().afterFlush(handle_->path);}
   bool getWriteError()const{return handle_&&handle_->error;}
   void close(){handle_.reset();}
-  File openNextFile(){if(!handle_||handle_->entry>=handle_->entries.size())return File{};return File(handle_->entries[handle_->entry++]);}
+  File openNextFile(){
+    if(handle_&&handle_->directory&&host::fileHooks().dynamicDirectory){
+      const auto& path=handle_->path;
+      for(const auto& item:host::files)if(item.first.substr(0,path.size()+1)==path+"/"&&item.first.find('/',path.size()+1)==std::string::npos&&
+          std::find(handle_->entries.begin(),handle_->entries.end(),item.first)==handle_->entries.end())handle_->entries.push_back(item.first);
+    }
+    if(!handle_||handle_->entry>=handle_->entries.size())return File{};
+    return File(handle_->entries[handle_->entry++]);
+  }
 };
 class SDClass {
 public:

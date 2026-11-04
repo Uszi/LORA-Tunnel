@@ -8,12 +8,19 @@
 #include <driver/rtc_io.h>
 #include <driver/spi_master.h>
 #include <esp_sleep.h>
+#include <esp_timer.h>
 #include <cmath>
+#include <freertos/semphr.h>
 
 namespace {
 // On ESP32-S3 Arduino HSPI is SPI3; FSPI/SPI2 remains available for SX1262.
 SPIClass peripheralBus(HSPI);
 SPIClass radioBus(FSPI);
+bool audioReady=false;
+esp_timer_handle_t audioOffTimer=nullptr;
+uint32_t audioDeadline=0;
+StaticSemaphore_t audioMutexStorage;
+SemaphoreHandle_t audioMutex=nullptr;
 
 class TunnelDisplay final : public lgfx::LGFX_Device {
   lgfx::Bus_SPI bus_;
@@ -138,6 +145,24 @@ bool begin() {
   const bool displayInitialized = screen.init();
   screen.setRotation(board::DISPLAY_ROTATION);
   screen.setBrightness(150);
+  // Own one PWM output without Arduino tone()'s queued, duration-blocked task.
+  audioMutex=xSemaphoreCreateMutexStatic(&audioMutexStorage);
+  const bool pwmReady=audioMutex && ledcAttach(board::BUZZER,2200,10);
+  if(pwmReady) {
+    ledcWriteTone(board::BUZZER,0);
+    esp_timer_create_args_t timer{};
+    timer.callback=[](void*) {
+      // Timer task and main loop share the driver; an old callback must not
+      // silence a new note or race detaching its pin during sleep.
+      xSemaphoreTake(audioMutex,portMAX_DELAY);
+      if(audioReady && int32_t(millis()-audioDeadline)>=0)ledcWriteTone(board::BUZZER,0);
+      xSemaphoreGive(audioMutex);
+    };
+    timer.name="alert-off";
+    audioReady=esp_timer_create(&timer,&audioOffTimer)==ESP_OK;
+    if(!audioReady)ledcDetach(board::BUZZER);
+  }
+  Serial.printf("LT AUDIO ready=%d\n",audioReady);
 
   // Display reset also reset the CHSC6xxx. It enters normal mapped mode itself.
   Wire.begin(board::TOUCH_SDA, board::TOUCH_SCL, 100000);
@@ -196,9 +221,19 @@ bool touch(uint16_t& x, uint16_t& y) {
   return true;
 }
 
-void beep() {
-  // Arduino's bounded-duration tone task turns this off without blocking UI.
-  tone(board::BUZZER, 2200, 65);
+bool alertAudioReady() { return audioReady; }
+void alertTone(uint16_t frequencyHz, uint16_t durationMs) {
+  if(!audioReady)return;
+  xSemaphoreTake(audioMutex,portMAX_DELAY);
+  esp_timer_stop(audioOffTimer);
+  audioDeadline=millis()+durationMs;
+  if(!frequencyHz || !durationMs)ledcWriteTone(board::BUZZER,0);
+  else {
+    ledcWriteTone(board::BUZZER,frequencyHz);
+    if(esp_timer_start_once(audioOffTimer,uint64_t(durationMs)*1000)!=ESP_OK)
+      ledcWriteTone(board::BUZZER,0);
+  }
+  xSemaphoreGive(audioMutex);
 }
 
 float batteryVolts() {
@@ -247,7 +282,13 @@ void cancelSleepPreparation() {
 
 [[noreturn]] void enterDeepSleep() {
   // The caller has already saved/unmounted SD and stopped asynchronous users.
-  noTone(board::BUZZER);
+  alertTone(0,0);
+  if(audioReady) {
+    xSemaphoreTake(audioMutex,portMAX_DELAY);
+    audioReady=false;
+    ledcDetach(board::BUZZER);
+    xSemaphoreGive(audioMutex);
+  }
   screen.waitDMA();
   screen.setBrightness(0);
   screen.sleep();

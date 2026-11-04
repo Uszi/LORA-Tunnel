@@ -88,13 +88,30 @@ int main(int argc,char** argv) {
   focus=4;capture(output,"uploads-more",model);focus=0;
   key(input::KeyCode::Select,model);expect(sent.back().action==ui::Action::ToggleAutoUpload && sent.back().field==0 && sent.back().value=="1","enable service explicit");
   model.auto_wigle=true;key(input::KeyCode::Select,model);expect(sent.back().value=="0","disable service explicit");
-  model.running=true;focus=3;const size_t uploadCount=sent.size();key(input::KeyCode::Select,model);expect(sent.size()==uploadCount,"manual upload blocked during capture");
+  model.running=true;focus=3;const size_t uploadCount=sent.size();key(input::KeyCode::Select,model);expect(sent.size()==uploadCount,"manual upload blocked during capture");expect(screenHas("Stop and save before upload"),"blocked manual upload has visible explanation");
   model.running=false;key(input::KeyCode::Select,model);expect(sent.back().action==ui::Action::UploadNow && sent.back().field==0,"manual WiGLE upload requested");
   model.upload_busy=true;focus=6;key(input::KeyCode::Select,model);expect(sent.back().action==ui::Action::CancelUpload,"upload cancellation reachable");model.upload_busy=false;
   show(Page::Settings);focus=5;key(input::KeyCode::Select,model);expect(page==Page::Power && focus==0,"Power defaults to Cancel");capture(output,"power",model);
   const size_t powerCount=sent.size();key(input::KeyCode::Select,model);expect(page==Page::Settings && sent.size()==powerCount,"Power Cancel emits no shutdown");
   focus=5;key(input::KeyCode::Select,model);key(input::KeyCode::Right,model);key(input::KeyCode::Select,model);expect(sent.back().action==ui::Action::Shutdown,"Power confirmation requests shutdown");
   model.shutting_down=true;const size_t shuttingCount=sent.size();key(input::KeyCode::Select,model);textKey('w',model);expect(sent.size()==shuttingCount,"shutdown ignores input");capture(output,"saving",model);
+  model.shutting_down=false;show(Page::Uploads);
+  std::strcpy(model.upload_status,"WDGWars: job queued; receipt pending");
+  std::strcpy(model.notice,"Upload preference save failed");
+  hw::display().commands.clear();dirty=true;ui::tick(model);
+  expect(screenHas("WDGWars: job queued"),"Uploads retains current worker status");
+  expect(screenHas("Upload preference save failed"),"Uploads also shows setting/refusal notice");
+  bool statusLine=false,noticeLine=false;
+  for(const auto& command:hw::display().commands){
+    if(command.text.find("WDGWars: job queued")!=std::string::npos)statusLine=command.y==98;
+    if(command.text.find("Upload preference save failed")!=std::string::npos)noticeLine=command.y==110;}
+  expect(statusLine&&noticeLine,"status and action notice occupy distinct nonoverlapping rows");capture(output,"uploads-status-notice",model);
+  expect(!ui::allowsBackgroundUpload()&&ui::allowsUploadJobPolling(),"Uploads allows existing-job polling but suppresses new automatic uploads");
+  for(Page guarded:{Page::Credentials,Page::Edit,Page::Power}){show(guarded);expect(!ui::allowsBackgroundUpload()&&!ui::allowsUploadJobPolling(),"editing and Power suppress both network scheduling paths");}
+  show(Page::Settings);expect(ui::allowsBackgroundUpload()&&ui::allowsUploadJobPolling(),"normal idle page allows automatic work and job continuation");
+  show(Page::Uploads);focus=6;hw::display().commands.clear();dirty=true;ui::tick(model);
+  expect(screenHas("Cancel upload")&&screenHas("3/3"),"Cancel remains reachable on third Uploads page");
+  key(input::KeyCode::Select,model);expect(sent.back().action==ui::Action::CancelUpload,"third-page cancel action preserved");
   // Every page/focus and long valid model string must remain within 240 x 135.
   model.shutting_down=false;memset(model.notice,'N',sizeof(model.notice)-1);memset(model.upload_status,'U',sizeof(model.upload_status)-1);
   for(Page next:{Page::Home,Page::Drive,Page::Recon,Page::Detail,Page::Settings,Page::Credentials,Page::Edit,Page::Regions,Page::Power,Page::Uploads}) {

@@ -24,6 +24,8 @@ inline constexpr uint16_t WRITER_RECORDS = 8;
 inline constexpr uint32_t WRITER_STACK_BYTES = 10240;
 inline constexpr uint16_t MANAGEMENT_RESERVE = 2;
 inline constexpr uint16_t SUMMARY_RECORDS = 32;
+// UI evidence is already limited to 64 bytes; full evidence remains in SD logs.
+inline constexpr uint16_t SUMMARY_EVIDENCE_BYTES = 64;
 inline constexpr uint16_t DISPLAY_WIDTH = 240;
 inline constexpr uint16_t DISPLAY_HEIGHT = 135;
 inline constexpr uint8_t DISPLAY_ROTATION = 1;
@@ -89,6 +91,7 @@ inline constexpr uint16_t WRITER_RECORDS = 32;
 inline constexpr uint32_t WRITER_STACK_BYTES = 12288;
 inline constexpr uint16_t MANAGEMENT_RESERVE = 8;
 inline constexpr uint16_t SUMMARY_RECORDS = 64;
+inline constexpr uint16_t SUMMARY_EVIDENCE_BYTES = 128;
 
 inline constexpr int VEXT_ENABLE = 40; // Active low; display, SD, touch pullups.
 inline constexpr int LCD_SCK = 16;

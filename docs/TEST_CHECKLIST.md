@@ -216,9 +216,15 @@ Use a copy of this checklist for each hardware revision.
 - [ ] Raise `display_min` above a known match: it disappears from display but
   remains in the enabled-category native Recon log. Disable its category and
   verify Recon filtering, while ordinary Wardriver observation remains usable.
-- [ ] Test `alert_min`, winning-rule `alert:false`, the 30-second retained
-  identity cooldown and one-second global cooldown. Verify UI mute takes effect
-  without writing configuration and reboot reloads `recon.buzzer`.
+- [ ] Test `alert_min`, winning-rule `alert:false`, once-per-identity sound in
+  an active Recon session, and one-second global admission spacing. Repeated
+  sightings after 30 seconds, display-summary eviction and mute/unmute must not
+  replay an identity. Fill the separate 128-identity history: suppress new audio
+  without eviction while capture continues. Explicit new Recon Start resets it.
+- [ ] Confirm Wardriver, stopped capture and merely viewing Recon stay silent.
+  Stop, mode change, mute and shutdown must immediately cancel the motif. Verify
+  UI mute takes effect without writing configuration; reboot reloads `recon.buzzer`.
+  Check original category/brand motifs on both boards and capture responsiveness.
 - [ ] Keep the shipped rule list empty and confirm built-in detection works.
   Add controlled name/SSID-prefix/OUI/service/manufacturer rules; test invalid
   types, malformed advertisements, unknown categories, duplicates and oversized
@@ -253,7 +259,7 @@ Use a copy of this checklist for each hardware revision.
   may appear. Config may contain secrets by design and stays private on the SD.
 - [ ] Test OUI/name rules with known matching and nonmatching devices. Label
   these as rule/vendor evidence rather than proof of device purpose. Verify
-  alert cooldowns, mute, returning sightings and changing RSSI remain usable.
+  once-per-session alerts, mute, returning sightings and changing RSSI remain usable.
 - [ ] A summary entry can be deduplicated while subsequent observations and
   their changed signal/location still enter the session log.
 - [ ] Verify target-specific queue/scratch allocation failures refuse initialization

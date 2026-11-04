@@ -26,7 +26,10 @@ enum NavigationButton : uint8_t { Next = 1, Select = 2, Back = 4 };
 // IO: Next on release. USER: Select on short release, Back after 700 ms hold.
 // Poll and discard while navigation is disabled; no input event is queued.
 uint8_t navigationButtons();
-void beep();
+// Single note sink for the bounded main-loop melody scheduler. Zero stops now.
+// Audio initialization happens at boot; notes do not create playback tasks.
+void alertTone(uint16_t frequencyHz, uint16_t durationMs);
+bool alertAudioReady();
 float batteryVolts();
 // Call only while SX1262 is in standby/RX, with DIO2 RF-switch control set up.
 // No transmit operation is provided by this hardware layer.

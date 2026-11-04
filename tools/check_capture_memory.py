@@ -9,25 +9,25 @@ from check_cardputer_ui import ROOT, compiler
 def check():
     main = (ROOT / "src/main.cpp").read_text(encoding="utf-8")
     signature = "void drain(unsigned limit=48) {"
-    start = main.index(signature)
-    end = main.index("\nvoid requestSession()", start)
-    body = main[start:end]
+    def function(source, signature):
+        begin = source.index(signature)
+        opening = source.index("{", begin)
+        depth, position = 1, opening + 1
+        while depth and position < len(source):
+            depth += (source[position] == "{") - (source[position] == "}")
+            position += 1
+        if depth:
+            raise RuntimeError("Unterminated production function: " + signature)
+        return source[begin:position] + "\n"
+    body = function(main, signature)
     if "sizeof(CaptureObservation)" not in main or "static_cast<CaptureObservation*>(&event)" not in body:
         raise RuntimeError("Actual ingress queue must use the compact base record")
     scanners = (ROOT / "src/scanners.cpp").read_text(encoding="utf-8")
     if "static_cast<Observation*>" in scanners or "sizeof(Observation)" in scanners:
         raise RuntimeError("Callback scratch must use compact capture records")
-    def function(signature):
-        begin = scanners.index(signature)
-        opening = scanners.index("{", begin)
-        depth, position = 1, opening + 1
-        while depth:
-            depth += (scanners[position] == "{") - (scanners[position] == "}")
-            position += 1
-        return scanners[begin:position] + "\n"
     ap_start = scanners.index("struct ScanAp {")
     ap_end = scanners.index("\nvoid IRAM_ATTR", ap_start)
-    ap_body = scanners[ap_start:ap_end] + "\n" + function("const char* auth(") + function("void collectWifi()") + function("void serviceWifiResults()")
+    ap_body = scanners[ap_start:ap_end] + "\n" + function(scanners, "const char* auth(") + function(scanners, "void collectWifi()") + function(scanners, "void serviceWifiResults()")
     with tempfile.TemporaryDirectory(prefix="lora-capture-host-") as tmp:
         work = Path(tmp)
         (work / "drain_actual.inc").write_text(body, encoding="utf-8")

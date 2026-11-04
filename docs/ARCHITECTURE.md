@@ -170,8 +170,12 @@ Random/local addresses never supply vendor-prefix evidence.
 Defaults: `ui.buttons_enabled=true`, `recon.buzzer=true`,
 `recon.display_min=low`, `recon.alert_min=medium`; omitted categories enable all
 and an empty array disables all. Alerts require enabled-category evidence at
-the alert threshold and an allowed winning rule, with a 30-second retained
-identity cooldown and one-second global cooldown. UI mute changes RAM; reboot
+the alert threshold and an allowed winning rule, only during active Recon
+capture. Each observed identity gets at most one short motif per explicit
+Recon session, with one-second global admission spacing. A separate fixed
+128-identity history survives display-cache eviction and mute/unmute; when
+full it suppresses new sound without eviction. Stop/mode change/mute/sleep
+cancel playback. See [alert behavior](ALERTS.md). UI mute changes RAM; reboot
 reloads the SD setting. Credential storage/keyboard replacement uses checked
 temporary-file promotion and preserves a valid backup. Existing damaged radio
 configuration with no valid backup disables LoRa. Missing configuration uses a

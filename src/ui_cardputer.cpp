@@ -82,8 +82,8 @@ void header(const char* title) {
 void status(const ui::Model& m) {
   char line[48];
   if(std::isfinite(m.battery) && m.battery>0)
-    snprintf(line,sizeof(line),"SD:%s GPS:%s %.2fV %s",m.sd?"OK":"--",m.gps?"FIX":"--",m.battery,m.running?"REC":"IDLE");
-  else snprintf(line,sizeof(line),"SD:%s GPS:%s BAT:-- %s",m.sd?"OK":"--",m.gps?"FIX":"--",m.running?"REC":"IDLE");
+    snprintf(line,sizeof(line),"SD:%s GPS:%s %.2fV %s",m.sd?"OK":"--",m.gps?"FIX":"--",m.battery,m.running?(m.recon?"RECON":"DRIVE"):"IDLE");
+  else snprintf(line,sizeof(line),"SD:%s GPS:%s BAT:-- %s",m.sd?"OK":"--",m.gps?"FIX":"--",m.running?(m.recon?"RECON":"DRIVE"):"IDLE");
   label(line,4,26,m.sd?WHITE:AMBER,38);
 }
 unsigned matches(const ui::Model& m,uint8_t indices[8]) {
@@ -176,10 +176,10 @@ void move(int delta,const ui::Model& m) {
     const unsigned count=menuCount(); if(count)focus=(focus+count+delta)%count;
   }
 }
-void drawMenu(const char* const* names,unsigned count) {
-  const unsigned start=(focus/4)*4;
-  if(count>4) {char pages[12];snprintf(pages,sizeof(pages),"%u/%u",focus/4+1,(count+3)/4);label(pages,198,7,MUTED,3);}
-  for(unsigned i=0;i<4 && start+i<count;++i)row(36+int(i)*18,names[start+i],focus==start+i);
+void drawMenu(const char* const* names,unsigned count,unsigned visible=4) {
+  const unsigned start=(focus/visible)*visible;
+  if(count>visible) {char pages[12];snprintf(pages,sizeof(pages),"%u/%u",focus/visible+1,(count+visible-1)/visible);label(pages,198,7,MUTED,3);}
+  for(unsigned i=0;i<visible && start+i<count;++i)row(36+int(i)*18,names[start+i],focus==start+i);
 }
 void wrapped(const char* text,int y,size_t capacity,uint16_t color) {
   const size_t length=strnlen(text,capacity);
@@ -261,14 +261,14 @@ void render(const ui::Model& m) {
     label(text,4,98,tunnel::lora_profiles::selectable(p)?GREEN:AMBER,38);
     footer(regionOnboarding?"Up/Down choose  Enter save  Esc skip":"Up/Down choose  Enter save  Esc back",m);
   } else if(page==Page::Uploads) {
-    header("UPLOADS");label(m.upload_busy?"Uploading completed sessions...":"Home Wi-Fi / completed sessions only",4,26,m.upload_busy?AMBER:MUTED,38);
+    header("UPLOADS");label(m.running?"Stop and save before upload":m.upload_busy?"Uploading completed sessions...":"Home Wi-Fi / completed sessions only",4,26,m.running||m.upload_busy?AMBER:MUTED,38);
     char wigle[40],wardrift[40],wdgwars[40];
     snprintf(wigle,sizeof(wigle),"WiGLE automatic: %s",m.auto_wigle?"ON":"OFF");
     snprintf(wardrift,sizeof(wardrift),"Wardrift automatic: %s",m.auto_wardrift?"ON":"OFF");
     snprintf(wdgwars,sizeof(wdgwars),"WDGWars automatic: %s",m.auto_wdgwars?"ON":"OFF");
-    const char* names[]={wigle,wardrift,wdgwars,"Upload now: WiGLE","Upload now: Wardrift","Upload now: WDGWars","Cancel upload"};drawMenu(names,7);
-    if(m.upload_status[0])label(m.upload_status,4,110,AMBER,38);
-    footer("Up/Down choose  Enter apply  Esc back",m,false);
+    const char* names[]={wigle,wardrift,wdgwars,"Upload now: WiGLE","Upload now: Wardrift","Upload now: WDGWars","Cancel upload"};drawMenu(names,7,3);
+    if(m.upload_status[0])label(m.upload_status,4,98,AMBER,38);
+    footer("Up/Down choose  Enter apply  Esc back",m);
   }
 }
 void splash() {
@@ -344,6 +344,7 @@ uint32_t inputLatencyP95Ms() {
 uint32_t inputLatencyMaxMs() {return inputMaximum;}
 uint32_t inputLatencySamples() {return latencyTotal;}
 bool allowsBackgroundUpload() {return page!=Page::Edit && page!=Page::Credentials && page!=Page::Uploads && page!=Page::Power;}
+bool allowsUploadJobPolling() {return page!=Page::Edit && page!=Page::Credentials && page!=Page::Power;}
 void tick(const Model& model) {
   if(!splashShown) {splash();present();splashShown=true;splashAt=millis();return;}
   const uint32_t now=millis();if(now-splashAt<1000)return;
