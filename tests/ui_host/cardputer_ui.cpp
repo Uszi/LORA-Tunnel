@@ -4,7 +4,8 @@
 #include <string>
 #include <vector>
 #include <cstdlib>
-uint32_t hostMillis=0;
+#include <cstdint>
+std::uint32_t hostMillis=0;
 #include "../../src/ui_cardputer.cpp"
 
 namespace {
