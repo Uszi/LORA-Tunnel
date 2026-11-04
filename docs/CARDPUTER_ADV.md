@@ -1,8 +1,8 @@
 # Cardputer ADV + Cap LoRa-1262
 
 LORA Tunnel **0.4.0-beta.1** adds a dedicated `cardputer-adv-lora1262` build for
-**M5Stack Cardputer ADV with Cap LoRa-1262 (U214)**. This is local test preparation:
-physical acceptance and publication are pending. The existing Heltec
+**M5Stack Cardputer ADV with Cap LoRa-1262 (U214)**. This is a public beta with scoped hardware validation;
+see [the exact checks and remaining limits](CARDPUTER_SOFTWARE_VALIDATION.md). The existing Heltec
 0.3.0-beta.1 release remains available unchanged.
 
 The target uses ESP32-S3, **8 MB flash, no PSRAM**, the 240 × 135 landscape

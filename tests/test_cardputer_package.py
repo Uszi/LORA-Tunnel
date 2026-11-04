@@ -84,6 +84,20 @@ class CardputerPackageChecks(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "pending"):
             package.validate_acceptance({}, "a" * 64, "b" * 64)
 
+    def test_scoped_beta_requires_explicit_authorization_and_disclosure(self):
+        record = {"target": package.TARGET, "result": "scoped-beta",
+                  "factory_sha256": "a" * 64, "app_sha256": "b" * 64,
+                  "publication_authorized": True, "authorized_at": "2026-11-04",
+                  "software_checks_passed": True, "usb_application_verified": True,
+                  "unverified_checks": ["Launcher installation", "Live uploads"]}
+        self.assertEqual(package.validate_publication(record, "a" * 64, "b" * 64), "scoped-beta")
+        for key, value in (("publication_authorized", False), ("unverified_checks", []),
+                           ("usb_application_verified", False), ("app_sha256", "c" * 64)):
+            bad = dict(record, **{key: value})
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                package.validate_publication(bad, "a" * 64, "b" * 64)
+
+
 
 if __name__ == "__main__":
     unittest.main()

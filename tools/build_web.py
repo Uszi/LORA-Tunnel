@@ -253,14 +253,15 @@ def prepare_target(entry, base, github, local_preview):
     relink_url = github + "/releases/download/v" + version + "/" + relink_path.name
     public_enabled = entry.get("public_enabled") is True
     app, sd_data = None, None
+    validation_status = "scoped-existing-release"
     if target == "cardputer-adv-lora1262":
         _, app = checked_file(entry["app"], entry["app_sha256"], base)
         cardputer.validate_factory(factory, version, app)
         if public_enabled:
             if not entry.get("acceptance"):
-                raise ValueError("Cardputer public release requires physical acceptance")
+                raise ValueError("Cardputer public release requires acceptance or scoped beta authorization")
             acceptance = json.loads((base / entry["acceptance"]).read_text(encoding="utf-8"))
-            cardputer.validate_acceptance(acceptance, entry["factory_sha256"], entry["app_sha256"])
+            validation_status = cardputer.validate_publication(acceptance, entry["factory_sha256"], entry["app_sha256"])
         elif not local_preview:
             raise ValueError("Cardputer hardware acceptance is pending; use --local-preview for local preparation only")
     else:
@@ -278,8 +279,7 @@ def prepare_target(entry, base, github, local_preview):
                "source_file": source_path.name, "source_sha256": entry["source_sha256"], "source_commit": commit,
                "sd_file": f"LORA-Tunnel-{version}-SD-setup.zip",
                "relink_url": relink_url, "relink_sha256": entry["relink_sha256"],
-               "public_enabled": public_enabled, "hardware_validation": "passed" if public_enabled and app is not None else
-               ("pending" if app is not None else "scoped-existing-release"),
+               "public_enabled": public_enabled, "hardware_validation": validation_status if public_enabled else "pending",
                "guide": f"targets/{target}/guides/" + ("CARDPUTER_ADV.html" if app is not None else "USER_GUIDE.html"),
                "manifest": f"firmware/{target}/manifest.json"}
     if app_name:
@@ -370,7 +370,7 @@ def build(args):
                "local_preview": args.local_preview, "targets": releases}
     write_json(output / "catalog.json", catalog)
     write_json(output / "PUBLICATION.json", {"publishable": not args.local_preview and all(r["public_enabled"] for r in releases),
-                                             "reason": "Local acceptance preparation only" if args.local_preview else "Hardware acceptance checked"})
+                                             "reason": "Local acceptance preparation only" if args.local_preview else "Release authorization and artifact bindings checked"})
     check_links(output)
     inventory = {}
     for path in sorted(output.rglob("*")):

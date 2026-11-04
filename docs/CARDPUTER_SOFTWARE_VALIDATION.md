@@ -1,6 +1,6 @@
 # Cardputer 0.4.0-beta.1 software candidate
 
-Updated 2026-11-04 (America/New_York). **Public publication remains pending.**
+Updated 2026-11-04 (America/New_York). **HW11 is authorized for public beta publication with the limits below.**
 **HW11 is installed by an independently verified USB application update.**
 The upload parser now releases its 14,337 requested buffer bytes before HTTP,
 and Cardputer waits for idle-task reclamation after BLE shutdown before
@@ -829,3 +829,20 @@ remains canceled. Production flasher publication, GitHub/Gitea release assets
 and M5Burner submission have not occurred for this candidate. Physical Launcher,
 exact factory/web installation, battery/sleep/wake, sustained interactive
 capture and live-service receipts remain distinct outstanding validation.
+
+## Public beta scope — 2026-11-04
+
+The project owner explicitly authorized publication of the current HW11 beta
+without further hardware testing. Unperformed checks remain unverified; this
+is a scoped beta release, not a passed full acceptance checklist.
+
+A final 60-second capture and confirmed stop/save recorded 194 Wi-Fi, 1,925 BLE
+and two LoRa observations, seven log drops, no errors or allocation failures,
+a 34,820-byte lifetime minimum internal heap and 30,708-byte largest sampled
+block. No GPS fix was present during that short run. No captured identifiers,
+coordinates or credential values are distributed.
+
+Physical Launcher install/return, exact HW11 factory/web installation,
+battery/sleep/wake, sustained interactive capture and live upload receipts
+remain unverified. Earlier physical results retain their recorded scope.
+Publication metadata uses `scoped-beta`, never `passed`, for this authorization.

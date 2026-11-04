@@ -1,6 +1,6 @@
 # LORA Tunnel web installer
 
-The Cardputer ADV + Cap LoRa-1262 target is prepared alongside the preserved
+The Cardputer ADV + Cap LoRa-1262 public beta is available alongside the preserved
 Heltec 0.3.0-beta.1 installer. See [Cardputer installation and Launcher files](CARDPUTER_ADV.md)
 and [publication/acceptance status](CARDPUTER_RELEASE.md). The hardware selector
 uses a separate manifest for each board because both identify as ESP32-S3.
@@ -32,6 +32,6 @@ The high-band website gate accepts only the release target `heltec-v4-r8-tft-hig
 
 First-run profile selection happens on the device, not in ESP Web Tools. A valid existing SD configuration can preserve an older US profile. Region selection changes LoRa only; the radio still listens to one frequency/modem configuration at a time. [Region table and saved-setting precedence](REGIONS.md)
 
-The current beta stores credentials on microSD and does not implement Improv Wi-Fi provisioning or an uploader. ESP Web Tools' optional Wi-Fi features do not add those capabilities to this firmware. Keep the SD card's private configuration and sessions out of published firmware/source artifacts.
+Both targets store credentials on microSD and do not implement Improv Wi-Fi provisioning. Cardputer 0.4 adds opt-in WiGLE, Wardrift and WDGWars uploads while capture is stopped; the preserved Heltec 0.3 release has no uploader. ESP Web Tools' optional Wi-Fi features do not add those capabilities to this firmware. Keep the SD card's private configuration and sessions out of published firmware/source artifacts.
 
 The web installer uses [ESP Web Tools](https://github.com/esphome/esp-web-tools), pinned to 10.4.0 under Apache-2.0. Its retained license and provenance are under `web/vendor/esp-web-tools-10.4.0/`. Original firmware code is MIT licensed; imported component licenses remain separate. [Full attribution](THIRD_PARTY.md).

@@ -1,10 +1,10 @@
 # LORA Tunnel
 
-**BETA · Cardputer ADV 0.4.0-beta.1 preparation · Heltec published 0.3.0-beta.1**
+**BETA · Cardputer ADV 0.4.0-beta.1 · Heltec published 0.3.0-beta.1**
 
 LORA Tunnel provides a handheld field terminal for the [Heltec WiFi LoRa 32 Expansion Kit V2 / V4-R8](https://heltec.org/project/v4-r8-ex/) and a dedicated [Cardputer ADV + Cap LoRa-1262 (U214) build](docs/CARDPUTER_ADV.md). Its primary **Wardriver** mode records nearby radio observations to microSD. A separate passive **Recon** mode presents matched indicators, their evidence and optional buzzer alerts. Capture runs on the device without a laptop, phone or Kismet server.
 
-**Cardputer ADV 0.4.0-beta.1 is being prepared locally; physical acceptance and publication are pending.** It has a compact 240 × 135 keyboard interface, U214 LoRa/GNSS support, an 8 MB/no-PSRAM profile and separately packaged factory/Launcher binaries. [Cardputer setup and controls](docs/CARDPUTER_ADV.md) · [Acceptance and release checklist](docs/CARDPUTER_RELEASE.md).
+**Cardputer ADV 0.4.0-beta.1 is a public beta with scoped hardware validation.** It has a compact 240 × 135 keyboard interface, U214 LoRa/GNSS support, an 8 MB/no-PSRAM profile and separately packaged factory/Launcher binaries. [Cardputer setup and controls](docs/CARDPUTER_ADV.md) · [Acceptance and release checklist](docs/CARDPUTER_RELEASE.md).
 
 **Published Heltec 0.3.0-beta.1 remains unchanged.** Its GPS fix and short Wi-Fi/BLE capture were measured on the actual Heltec; region saving, logo, power Cancel/sleep and USER wake also have scoped user confirmation. Restart retention, independent geotagged SD readback and sustained-drive acceptance remain separate. These results do not certify Cardputer hardware. [Versioned Heltec evidence](docs/VALIDATION.md).
 
@@ -13,6 +13,8 @@ LORA Tunnel provides a handheld field terminal for the [Heltec WiFi LoRa 32 Expa
 | ![Home interface render](assets/ui/home.png) | ![Wardriver interface render](assets/ui/wardriver.png) | ![Recon interface render](assets/ui/recon.png) |
 
 *These are renders of the actual UI drawing code with synthetic sample values, not device photos or captured networks. The renderer uses the firmware’s bitmap font; host rasterization can still differ from the device. [Interface views and rendering notes](assets/ui/README.md).* The green radio remains the project logo. The interface also displays the supplied official VTS logo in its upper-right header as a separate brand mark.
+
+[Cardputer factory BIN](https://github.com/valleytechsolutions/LORA-Tunnel/releases/download/v0.4.0-beta.1/LORA-Tunnel-0.4.0-beta.1-Cardputer-ADV-LoRa1262-FACTORY-0x0.bin) · [Cardputer Launcher application BIN](https://github.com/valleytechsolutions/LORA-Tunnel/releases/download/v0.4.0-beta.1/LORA-Tunnel-0.4.0-beta.1-Cardputer-ADV-LoRa1262-LAUNCHER-APP.bin) · [Release and checksums](https://github.com/valleytechsolutions/LORA-Tunnel/releases/tag/v0.4.0-beta.1)
 
 [GitHub source](https://github.com/valleytechsolutions/LORA-Tunnel) · [Web installer](https://valleytech-lora-tunnel.pages.dev/) · [Project page](https://valleytechsolutions.tech/pages/lora-tunnel)
 
@@ -43,9 +45,8 @@ starting capture takes priority. Enter WiGLE API name/token, Wardrift token or
 WDGWars token only for the services you choose. [Service setup, eligibility,
 retry behavior and current test status](docs/UPLOADS.md).
 
-This is software under development and test. Hardware/network integration and
-live service acceptance remain pending; no user's observations are uploaded
-during development. The unchanged Heltec 0.3.0-beta.1 release has no uploader.
+Live service receipts remain unverified for this beta. Uploads are opt-in and
+run only while capture is stopped and saved; see the validation notes. The unchanged Heltec 0.3.0-beta.1 release has no uploader.
 
 ## Cardputer ADV target
 
@@ -58,8 +59,9 @@ These are source-rendered synthetic previews, not photographs or physical accept
 Build with `python -m platformio run -e cardputer-adv-lora1262`. Follow the
 [Cardputer guide](docs/CARDPUTER_ADV.md) for keyboard controls, U214 setup,
 region selection, microSD, factory installation and Launcher installation.
-The original Cardputer and other caps are not this target. Cardputer binary
-publication waits for the physical acceptance run.
+The original Cardputer and other caps are not this target. This beta has verified USB application installation and short capture checks;
+physical Launcher installation, exact factory/web flashing, battery/sleep/wake,
+sustained interactive capture and live upload receipts remain unverified.
 
 ## Heltec hardware and first start
 

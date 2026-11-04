@@ -111,6 +111,24 @@ def validate_acceptance(record, factory_sha, app_sha):
             "Hardware acceptance needs test date and Launcher version")
 
 
+def validate_publication(record, factory_sha, app_sha):
+    """Keep full acceptance distinct from an explicitly authorized scoped beta."""
+    if record.get("result") != "scoped-beta":
+        validate_acceptance(record, factory_sha, app_sha)
+        return "passed"
+    require(record.get("target") == TARGET, "Scoped beta target mismatch")
+    require(record.get("factory_sha256") == factory_sha and record.get("app_sha256") == app_sha,
+            "Scoped beta authorization does not match the packaged firmware")
+    require(record.get("publication_authorized") is True and bool(record.get("authorized_at")),
+            "Scoped beta needs explicit publication authorization")
+    require(record.get("software_checks_passed") is True and record.get("usb_application_verified") is True,
+            "Scoped beta needs verified software and USB application evidence")
+    limits = record.get("unverified_checks")
+    require(isinstance(limits, list) and bool(limits) and all(isinstance(x, str) and x.strip() for x in limits),
+            "Scoped beta must disclose unverified checks")
+    return "scoped-beta"
+
+
 def package(build, output, version):
     require(bool(re.fullmatch(r"\d+\.\d+\.\d+-beta\.\d+", version)), "Expected beta version")
     app = (build / "firmware.bin").read_bytes()

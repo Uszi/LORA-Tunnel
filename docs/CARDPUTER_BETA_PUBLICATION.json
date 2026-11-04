@@ -1,0 +1,21 @@
+{
+  "target": "cardputer-adv-lora1262",
+  "version": "0.4.0-beta.1",
+  "candidate": "HW11",
+  "result": "scoped-beta",
+  "publication_authorized": true,
+  "authorized_at": "2026-11-04",
+  "software_checks_passed": true,
+  "usb_application_verified": true,
+  "factory_sha256": "ae88b656f3d74ead93944c2b98f2b74f72c08fde49f2a78983b1cd04ccff3565",
+  "app_sha256": "d4c086da98beb4a3cdf99457ba0059f71af7abc988344f65b665c10b7b12d58a",
+  "unverified_checks": [
+    "Exact HW11 factory installation through web flasher",
+    "Physical Launcher install, auto-start and menu return",
+    "Battery operation and sleep/wake",
+    "Sustained interactive capture and physical input latency",
+    "Known-source RF matching and saved GPS geotags",
+    "Live WiGLE, Wardrift and WDGWars firmware upload receipts"
+  ],
+  "validation_report": "CARDPUTER_SOFTWARE_VALIDATION.md"
+}

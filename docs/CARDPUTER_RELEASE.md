@@ -1,9 +1,18 @@
 # Cardputer 0.4.0-beta.1 release preparation
 
-**Status: local preparation; physical acceptance and publication pending.**
-Do not push, deploy, upload assets, submit M5Burner, or claim hardware acceptance
-until the actual Cardputer ADV + U214 acceptance run passes. Source, build,
-package and browser previews are separate evidence from physical checks.
+**Status: HW11 public beta authorized on 2026-11-04 with scoped validation.**
+The project owner requested publication of the current firmware without further
+hardware testing. The exact image hashes and remaining unverified checks are
+recorded in [the validation report](CARDPUTER_SOFTWARE_VALIDATION.md). Full
+hardware acceptance and scoped beta authorization are separate publication
+paths; neither path changes artifact integrity, blank-NVS or wrong-board checks.
+
+The full acceptance procedure below remains the target for a future fully
+validated release. For this beta, supply an exact-image publication record with
+`result: scoped-beta`, `publication_authorized: true`, `authorized_at`,
+`software_checks_passed: true`, `usb_application_verified: true`, and a nonempty
+`unverified_checks` list. The builder publishes that state as `scoped-beta`.
+Do not turn pending checks into passing booleans.
 
 ## Artifacts and source provenance
 
@@ -86,9 +95,9 @@ loopback and the acceptance query is present. It still requires hardware
 selection/confirmation. Do not deploy the preview directory. `PUBLICATION.json`
 records that it is not publishable.
 
-A production build omits `--local-preview`. It rejects a pending Cardputer
-entry. Set `public_enabled: true` and supply `acceptance` pointing to the actual
-hardware record only after acceptance. The record requires target, `result`
+A production build omits `--local-preview`. It rejects an unauthorized Cardputer
+entry. Set `public_enabled: true` and supply `acceptance` pointing to either the
+scoped beta authorization described above or the completed hardware record. The record requires target, `result`
 `passed`, exact factory/app hashes, `tested_at`, `launcher_version`, and every
 following boolean under `checks`:
 
@@ -112,8 +121,9 @@ At the physical milestone the user supplies home Wi-Fi credentials and enables
 each service they want to test. Keep tokens, coordinates and captures private.
 Record live service results separately from software fixtures. An unavailable
 credential or untested service remains pending; neither a host test nor a saved
-setting is a successful live upload. The release gate remains pending until
-the listed live checks are recorded against these exact binaries.
+setting is a successful live upload. A full acceptance claim remains pending until
+the listed live checks are recorded against these exact binaries; scoped beta
+publication must disclose the outstanding checks.
 
 Retain test details and logs privately; publish only the sanitized validation
 summary. A file containing booleans is a record of testing, not a substitute
