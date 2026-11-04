@@ -30,3 +30,5 @@ void vTaskSuspend(void* task);
 eTaskState eTaskGetState(TaskHandle_t task);
 TaskHandle_t xTaskGetCurrentTaskHandle();
 int xTaskCreatePinnedToCore(void(*fn)(void*),const char*,int,void* arg,int,TaskHandle_t*,int);
+
+inline uint32_t uxTaskGetStackHighWaterMark(TaskHandle_t){return 4096;}

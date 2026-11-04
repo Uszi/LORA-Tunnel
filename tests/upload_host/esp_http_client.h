@@ -6,6 +6,7 @@ namespace host {
 struct HttpScript {int code=200;std::string body="{\"success\":true}";unsigned fragment=7;bool headersFail=false,openFail=false;};
 struct HttpCall {esp_http_client_config_t config{};std::string url,body;std::map<std::string,std::string> headers;HttpScript script;size_t readAt=0;int promised=0;};
 extern unsigned activeHttp;extern bool bleReady;
+extern std::set<void*> buffers;
 extern std::vector<HttpScript> scripts;extern std::vector<HttpCall> calls;extern void(*afterWrite)();
 void verifyFinalizedPost(const esp_http_client_config_t* config);
 }
@@ -14,6 +15,7 @@ inline esp_http_client_handle_t esp_http_client_init(const esp_http_client_confi
 #if defined(LORA_TUNNEL_CARDPUTER_ADV)
 if(host::bleReady)throw std::runtime_error("TLS allocated before BLE release");
 #endif
+if(!host::buffers.empty())throw std::runtime_error("Parser line/row/JSON memory overlaps HTTP");
 if(config->method==HTTP_METHOD_POST)host::verifyFinalizedPost(config);
 ++host::activeHttp;host::calls.emplace_back();auto& call=host::calls.back();call.config=*config;call.url=config->url;if(!host::scripts.empty()){call.script=host::scripts.front();host::scripts.erase(host::scripts.begin());}return &call;}
 inline int esp_http_client_set_header(esp_http_client_handle_t c,const char* key,const char* value){c->headers[key]=value;return 0;}

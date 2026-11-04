@@ -79,6 +79,14 @@ class BenchSerialTests(unittest.TestCase):
         self.assertIsNone(bench.parse_status(status(**dict(fields,scanner_stage="invalid/value")).decode().strip()))
         self.assertIsNone(bench.parse_status(status(**dict(fields,heap_hw=-1)).decode().strip()))
 
+    def test_upload_resource_metrics_are_nonsecret_optional_integers(self):
+        fields=dict(upload_runs=17,upload_min_free=42000,upload_largest=24000,upload_stack=4096,upload_check=2)
+        parsed=bench.parse_status(status(**fields,api_token="private").decode().strip())
+        for name,value in fields.items():
+            self.assertEqual(parsed[name],value)
+            self.assertIsNone(bench.parse_status(status(**dict(fields,**{name:-1})).decode().strip()))
+        self.assertNotIn("api_token",parsed)
+
     def test_silent_device_fails_even_with_stale_buffered_status(self):
         result, connection, output = self.exercise(responder=lambda *_: b"", initial=status())
         self.assertNotEqual(result, 0)

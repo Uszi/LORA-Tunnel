@@ -6,7 +6,7 @@ extern unsigned openFiles,regularFiles,peakRegularFiles,bufferCalls,failBufferCa
 extern std::map<std::string,std::string> files;
 extern std::vector<std::string> directories;
 extern std::string failWritePath;
-struct FileHooks {void(*afterFlush)(const std::string&)=nullptr;bool dynamicDirectory=false;};
+struct FileHooks {void(*afterFlush)(const std::string&)=nullptr;bool dynamicDirectory=false,failSeek=false;};
 inline FileHooks& fileHooks(){static FileHooks hooks;return hooks;}
 struct OpenFile {
   explicit OpenFile(bool dir):directory(dir){++openFiles;if(!dir)peakRegularFiles=std::max(peakRegularFiles,++regularFiles);}
@@ -37,7 +37,8 @@ public:
   int read(){checkBuffer();if(!available())return -1;return static_cast<unsigned char>(host::files[handle_->path][handle_->pos++]);}
   size_t read(uint8_t* out,size_t n){checkBuffer();const size_t got=std::min(n,size()-handle_->pos);std::memcpy(out,host::files[handle_->path].data()+handle_->pos,got);handle_->pos+=got;return got;}
   size_t readBytes(char* out,size_t n){return read(reinterpret_cast<uint8_t*>(out),n);}
-  bool seek(size_t pos){if(!handle_||pos>size())return false;handle_->pos=pos;return true;}
+  size_t position()const{return handle_?handle_->pos:0;}
+  bool seek(size_t pos){if(!handle_||pos>size()||host::fileHooks().failSeek)return false;handle_->pos=pos;return true;}
   size_t write(const uint8_t* bytes,size_t n){checkBuffer();if(!handle_)return 0;if(!host::failWritePath.empty()&&handle_->path.find(host::failWritePath)!=std::string::npos){handle_->error=true;return 0;}auto& data=host::files[handle_->path];if(data.size()<handle_->pos+n)data.resize(handle_->pos+n);std::memcpy(&data[handle_->pos],bytes,n);handle_->pos+=n;return n;}
   size_t write(uint8_t byte){return write(&byte,1);}
   void flush(){if(handle_&&host::fileHooks().afterFlush)host::fileHooks().afterFlush(handle_->path);}

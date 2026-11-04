@@ -157,11 +157,12 @@ void reset(int service=0) {
   host::afterPark=host::afterRestore=nullptr;host::currentTask=reinterpret_cast<void*>(1);
   writerHost::queue=1;writerHost::queued=0;writerHost::counters.log_drops=0;writerHost::openSession=writerHost::busy=writerHost::capturing=false;
   host::createTask=host::bleReady=host::pauseOK=host::restoreOK=host::disconnected=true;
-  host::peakRegularFiles=host::bufferCalls=host::failBufferCall=host::checkpointCancels=0;host::fileHooks().afterFlush=nullptr;host::fileHooks().dynamicDirectory=false;
+  host::peakRegularFiles=host::bufferCalls=host::failBufferCall=host::checkpointCancels=0;host::fileHooks().afterFlush=nullptr;host::fileHooks().dynamicDirectory=false;host::fileHooks().failSeek=false;
   host::pauses=host::restores=host::allocation=host::failAllocation=0;host::afterPause=nullptr;
   config=Config{};strlcpy(config.wifi_name,"Synthetic home",128);strlcpy(config.wifi_password,"testpass",128);strlcpy(config.wigle_name,"testname",128);strlcpy(config.wigle_token,"testtoken",128);strlcpy(config.wardrift_token,"testwardrift",128);strlcpy(config.wdgwars_token,"testwdgwars",128);
   config.auto_wigle=service==0;config.auto_wardrift=service==1;config.auto_wdgwars=service==2;
   busy=false;cancelled=false;requests=retryMask=jobPollMask=authBlocked=0;nextRetry=nextJobPoll=0;associationFailures=0;wasIdle=false;initialPending=true;settingsEpoch=1;
+  uploadRuns=uploadMinFree=uploadSmallestBlock=uploadStackMargin=selfCheckState=0;
   uploaderBegin();host::files[sourcePath]=session();
 }
 void task(){
@@ -313,10 +314,41 @@ int main() {
     expect(host::task==nullptr&&!uploaderBusy()&&host::calls.size()==callsBefore,"no automatic worker or request thirty seconds after cancellation");
   }
 
+  // Distinct row IDs prove that the row which overflows a chunk is re-read
+  // exactly once, in order, after every parser buffer has been released for TLS.
+  reset();std::string boundarySession=session(0);const auto footer=boundarySession.substr(boundarySession.find('\n')+1);
+  boundarySession.resize(boundarySession.find('\n')+1);
+  for(unsigned i=0;i<16000;++i){char name[40];snprintf(name,sizeof(name),"Boundary-Row-%05u-Verify",i);std::string row=observation;row.replace(row.find("Synthetic AP"),12,name);boundarySession+=row+'\n';}
+  boundarySession+=footer;host::files[sourcePath]=boundarySession;automatic();
+  expect(host::calls.size()>1,"unique-row fixture crosses chunk boundary");unsigned nextRow=0;
+  for(const auto& call:host::calls){size_t at=0;while((at=call.body.find("Boundary-Row-",at))!=std::string::npos){
+    expect(unsigned(std::strtoul(call.body.c_str()+at+13,nullptr,10))==nextRow++,"every boundary row appears once in original order");at+=13;}}
+  expect(nextRow==16000&&host::files[sourcePath]==boundarySession,"all distinct rows uploaded and original retained");
+  reset();host::files[sourcePath]=boundarySession;host::failAllocation=4;automatic();
+  expect(host::calls.size()==1&&std::string(statusText).find("memory unavailable")!=std::string::npos,"parser reacquisition failure stops after first accepted chunk");
+  host::failAllocation=0;manual(0);expect(host::calls.size()==2,"retry resumes remaining chunk without reposting accepted chunk");
+  reset();host::files[sourcePath]=boundarySession;host::afterWrite=[](){host::fileHooks().failSeek=true;};automatic();
+  expect(host::calls.size()==1&&std::string(statusText).find("staging error")!=std::string::npos,"failed source rewind cannot lose or misplace a row in a new upload");
+  reset();host::files[sourcePath]=boundarySession;host::afterWrite=[](){host::files[sourcePath]+='\n';};automatic();
+  expect(host::calls.size()==1&&std::string(statusText).find("staging error")!=std::string::npos,"changed source size stops chunk continuation");
+#if defined(LORA_TUNNEL_CARDPUTER_ADV)
+  reset();const auto filesBefore=host::files;expect(uploaderSelfCheck(),"offline memory check admitted while idle");
+  expect(!uploaderSelfCheck(),"offline memory check refuses concurrent work");task();
+  const auto metrics=uploaderMetrics();
+  expect(metrics.self_check==2&&metrics.runs==1&&metrics.min_free&&metrics.smallest_block&&metrics.stack_margin,"offline check completes with resource diagnostics");
+  expect(host::files==filesBefore&&host::peakRegularFiles==0&&host::associations==0&&host::calls.empty(),"offline check performs no file or network operation");
+  reset();writerHost::capturing=true;expect(!uploaderSelfCheck()&&!host::pauses,"active capture refuses offline check");writerHost::capturing=false;
+  for(unsigned phase=1;phase<=3;++phase){reset();host::failAllocation=phase;expect(uploaderSelfCheck(),"allocation-failure check scheduled");task();expect(uploaderMetrics().self_check==3&&host::restores==1,"failed parser allocation restores BLE and reports failure");}
+  reset();host::restoreOK=false;expect(uploaderSelfCheck(),"restoration-failure check scheduled");task();expect(uploaderMetrics().self_check==3,"failed restoration cannot claim offline check passed");
+  reset();expect(uploaderSelfCheck(),"cancelled offline check scheduled");uploaderCancel();task();expect(uploaderMetrics().self_check==3&&host::pauses==0,"cancelled pending check leaves BLE unchanged");
+#else
+  reset();expect(!uploaderSelfCheck()&&host::task==nullptr,"Cardputer-only offline check leaves Heltec lifecycle unchanged");
+#endif
   reset();host::files[sourcePath]=session(10000);automatic();expect(host::calls.size()>1,"large session split into bounded chunks");for(const auto& chunk:host::calls)expect(chunk.body.size()<=upload::CsvChunkLimit+400,"each multipart CSV chunk stays below 1 MiB plus envelope");const auto count=host::calls.size();restart();automatic();expect(host::calls.size()==count,"all accepted chunk checkpoints survive restart");
   reset();host::connected=false;automatic();expect(host::calls.empty(),"association failure sends no HTTP");
   reset();host::failAllocation=1;automatic();expect(host::calls.empty(),"line allocation failure sends no HTTP");
-  reset();host::failAllocation=2;automatic();expect(host::calls.empty(),"row allocation failure sends no HTTP");
+  reset();host::failAllocation=2;automatic();expect(host::calls.empty(),"JSON arena allocation failure sends no HTTP");
+  reset();host::failAllocation=3;automatic();expect(host::calls.empty(),"row allocation failure sends no HTTP");
   reset();host::createTask=false;uploaderTick(true,true);
 #if defined(LORA_TUNNEL_CARDPUTER_ADV)
   expect(uploaderBusy()&&!loggerIdle()&&host::pauses==0&&host::workerStack==0,"maintenance reserves idle without allocating upload stack");task();

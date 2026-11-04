@@ -348,7 +348,8 @@ void refreshModel() {
 }
 void serialStatus() {
   const auto fix=currentFix();
-  Serial.printf("LT STATUS version=%s target=%s uptime_ms=%lu ready=%d running=%d saving=%d sd=%d touch=%d lora=%d gps_chars=%lu gps_fix=%d sats=%u wifi=%lu ble=%lu lora_rx=%lu drops=%lu errors=%lu free_heap=%u mode=%s matches=%lu free_psram=%u quiet=%d min_internal=%u largest_internal=%u loop_stack=%u writer_stack=%lu ui_p95_ms=%lu ui_max_ms=%lu ui_samples=%lu upload=%d input_ok=%d cap_ok=%d init_writer=%d init_scanner=%d init_memory=%d scanner_stage=%s heap_hw=%lu heap_ui=%lu heap_config=%lu heap_before_scan=%lu audio_ok=%d tone_active=%d alerted=%u alert_full=%d alloc_hook=%d alloc_fail=%lu\n",
+  const auto uploadMetrics=uploaderMetrics();
+  Serial.printf("LT STATUS version=%s target=%s uptime_ms=%lu ready=%d running=%d saving=%d sd=%d touch=%d lora=%d gps_chars=%lu gps_fix=%d sats=%u wifi=%lu ble=%lu lora_rx=%lu drops=%lu errors=%lu free_heap=%u mode=%s matches=%lu free_psram=%u quiet=%d min_internal=%u largest_internal=%u loop_stack=%u writer_stack=%lu ui_p95_ms=%lu ui_max_ms=%lu ui_samples=%lu upload=%d input_ok=%d cap_ok=%d init_writer=%d init_scanner=%d init_memory=%d scanner_stage=%s heap_hw=%lu heap_ui=%lu heap_config=%lu heap_before_scan=%lu audio_ok=%d tone_active=%d alerted=%u alert_full=%d alloc_hook=%d alloc_fail=%lu upload_runs=%lu upload_min_free=%lu upload_largest=%lu upload_stack=%lu upload_check=%lu\n",
     TUNNEL_VERSION,board::TARGET_ID,(unsigned long)millis(),ready,capturing.load(),stopping,storageReady(),hw::touchPresent(),loraReady(),gnssCharacters(),fix.valid,fix.satellites,
     (unsigned long)totals[0],(unsigned long)totals[1],(unsigned long)totals[2],
     (unsigned long)(counters.ingress_drops.load()+counters.log_drops.load()),
@@ -358,7 +359,9 @@ void serialStatus() {
     heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT),
     unsigned(uxTaskGetStackHighWaterMark(nullptr)),(unsigned long)loggerStackMargin(),
     (unsigned long)ui::inputLatencyP95Ms(),(unsigned long)ui::inputLatencyMaxMs(),(unsigned long)ui::inputLatencySamples(),uploaderBusy(),hw::inputReady(),hw::loraFrontendPresent(),initWriter,initScanner,initMemory,scannersInitStage(),
-    (unsigned long)heapAfterHardware,(unsigned long)heapAfterUi,(unsigned long)heapAfterConfig,(unsigned long)heapBeforeScanners,hw::alertAudioReady(),alertPlayer.active(),unsigned(alertHistory.size()),alertHistory.full(),allocationHookReady,(unsigned long)heapAllocationFailureSeen.load(std::memory_order_relaxed));
+    (unsigned long)heapAfterHardware,(unsigned long)heapAfterUi,(unsigned long)heapAfterConfig,(unsigned long)heapBeforeScanners,hw::alertAudioReady(),alertPlayer.active(),unsigned(alertHistory.size()),alertHistory.full(),allocationHookReady,(unsigned long)heapAllocationFailureSeen.load(std::memory_order_relaxed),
+    (unsigned long)uploadMetrics.runs,(unsigned long)uploadMetrics.min_free,(unsigned long)uploadMetrics.smallest_block,
+    (unsigned long)uploadMetrics.stack_margin,(unsigned long)uploadMetrics.self_check);
 }
 void shutdownCancelled(const char* reason) {
   shutdownPending=false; model.shutting_down=false;
@@ -450,6 +453,12 @@ void serialCommands() {
         else if(!strcmp(command,"tunnel start")) { if(!capturing.load()) requestSession(); serialStatus(); }
         else if(!strcmp(command,"tunnel stop")) { if(capturing.load()) requestSession(); serialStatus(); }
         else if(!strcmp(command,"tunnel status")) serialStatus();
+        else if(!strcmp(command,"tunnel upload-check")) {
+          const bool allowed=ready && !capturing.load() && !stopping && !gnssControlPending() && !uploaderBusy() && loggerIdle();
+          Serial.printf("LT UPLOAD_CHECK accepted=%d offline=1\n",allowed&&uploaderSelfCheck());
+          serialStatus();
+        }
+        else if(!strcmp(command,"tunnel upload-cancel")) {uploaderCancel();serialStatus();}
         else if(!strcmp(command,"tunnel heap")) {
           if(capturing.load() || stopping || uploaderBusy()) Serial.println("LT HEAP refused=1 reason=stop_and_save_first");
           else { Serial.println("LT HEAP per_region=1"); heap_caps_print_heap_info(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT); }

@@ -16,6 +16,7 @@
 #include <mbedtls/base64.h>
 #include <mbedtls/sha256.h>
 #include <esp_system.h>
+#include <esp_heap_caps.h>
 #include <Preferences.h>
 #include <atomic>
 #include <new>
@@ -39,7 +40,7 @@ std::atomic<unsigned> associationFailures{0};
 portMUX_TYPE statusMux=portMUX_INITIALIZER_UNLOCKED;
 char statusText[64]="Uploads off; configure keys and services";
 struct Work { Config settings; unsigned mask=0,manual=0,pollMask=0; uint32_t epoch=1;
-  bool pollOnly=false,resultReported=false,alreadyProcessed=false,skippedFiles=false; };
+  bool pollOnly=false,resultReported=false,alreadyProcessed=false,skippedFiles=false,selfCheck=false; };
 struct StorageLock {StorageLock(){xSemaphoreTake(busMutex,portMAX_DELAY);}~StorageLock(){xSemaphoreGive(busMutex);}};
 // Each writer owns one bounded stdio buffer, with no hidden allocation. Explicit
 // checked close decides success; RAII only guarantees locked cleanup on errors.
@@ -56,6 +57,38 @@ void status(const char* text){portENTER_CRITICAL(&statusMux);strlcpy(statusText,
 void serviceStatus(int service,const char* text){char line[64];snprintf(line,sizeof(line),"%s: %s",names[service],text);status(line);}
 void workStatus(Work& work,const char* text){work.resultReported=true;status(text);}
 void workServiceStatus(Work& work,int service,const char* text){work.resultReported=true;serviceStatus(service,text);}
+std::atomic<uint32_t> uploadRuns{0},uploadMinFree{0},uploadSmallestBlock{0},uploadStackMargin{0},selfCheckState{0};
+void sampleUploadResources() {
+  const uint32_t available=heap_caps_get_free_size(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT);
+  const uint32_t largest=heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT);
+  const uint32_t margin=uxTaskGetStackHighWaterMark(nullptr);
+  if(!uploadMinFree.load() || available<uploadMinFree.load())uploadMinFree=available;
+  if(!uploadSmallestBlock.load() || largest<uploadSmallestBlock.load())uploadSmallestBlock=largest;
+  if(!uploadStackMargin.load() || margin<uploadStackMargin.load())uploadStackMargin=margin;
+}
+// Ephemeral parser memory is completely absent during HTTP and job polling.
+// The allocator is explicit so tests account for the JSON arena as well as the
+// line/row buffers. Existing evidence and parser size limits are unchanged.
+struct UploadAllocator {
+  void* allocate(size_t bytes){return malloc(bytes);}
+  void deallocate(void* memory){free(memory);}
+};
+using UploadDocument=BasicJsonDocument<UploadAllocator>;
+struct ParserStorage {
+  char* line=nullptr;char* row=nullptr;UploadDocument* doc=nullptr;
+  ParserStorage()=default;
+  ParserStorage(const ParserStorage&)=delete;
+  ParserStorage& operator=(const ParserStorage&)=delete;
+  ~ParserStorage(){release();}
+  void release(){delete doc;doc=nullptr;free(line);line=nullptr;free(row);row=nullptr;}
+  bool acquire(bool withRow) {
+    if(!line)line=static_cast<char*>(malloc(LineCapacity));
+    if(!doc)doc=new(std::nothrow) UploadDocument(4096);
+    if(withRow&&!row)row=static_cast<char*>(malloc(upload::CsvRowCapacity));
+    const bool ok=line&&doc&&doc->capacity()>=4096&&(!withRow||row);
+    sampleUploadResources();if(!ok)release();return ok;
+  }
+};
 bool stopped(){return cancelled.load(std::memory_order_relaxed);}
 bool delayUntil(uint32_t duration){const uint32_t start=millis();while(millis()-start<duration){if(stopped())return false;vTaskDelay(pdMS_TO_TICKS(50));}return true;}
 // Keep Cardputer's stdio cache bounded; every caller already owns StorageLock.
@@ -95,7 +128,7 @@ int readLine(File& file,char* line,size_t capacity) {
   }
   line[used]=0;if(!any)return 0;return overflow?-1:int(used);
 }
-bool closedSession(const char* path,char digest[65],size_t& bytes,char* buffer,DynamicJsonDocument& doc) {
+bool closedSession(const char* path,char digest[65],size_t& bytes,char* buffer,UploadDocument& doc) {
   File file;{StorageLock lock;file=openFile(path,FILE_READ);if(!file)return false;bytes=file.size();}
   if(bytes<2){closeFile(file);return false;}
   const int first=readLine(file,buffer,LineCapacity);
@@ -180,7 +213,8 @@ bool writeHttp(esp_http_client_handle_t client,const char* data,size_t size,Resp
   }
   return sent==size;
 }
-Response requestHttp(const Work& work,int service,const char* csv,const char* filename,const char* job) {
+__attribute__((noinline)) Response requestHttp(const Work& work,int service,const char* csv,const char* filename,const char* job) {
+  sampleUploadResources();
   Response response;const bool poll=job&&*job;char url[180];
   if(poll)snprintf(url,sizeof(url),"https://wdgwars.pl/api/v2/upload-job/%s",job);else strlcpy(url,endpoints[service],sizeof(url));
   esp_http_client_config_t settings{};settings.url=url;settings.timeout_ms=4000;settings.disable_auto_redirect=true;
@@ -207,6 +241,7 @@ Response requestHttp(const Work& work,int service,const char* csv,const char* fi
     }
   }
   const uint32_t started=millis();bool ok=!stopped()&&esp_http_client_open(client,int(bytes+strlen(prefix)+strlen(suffix)))==ESP_OK;
+  sampleUploadResources();
   if(ok&&!poll) {
     ok=writeHttp(client,prefix,strlen(prefix),response,started);File file;
     {StorageLock lock;file=openFile(csv,FILE_READ);}if(!file)ok=false;
@@ -227,6 +262,7 @@ Response requestHttp(const Work& work,int service,const char* csv,const char* fi
     }
     response.body[used]=0;if(esp_http_client_is_complete_data_received(client))response.complete=true;
   }
+  sampleUploadResources();
   esp_http_client_close(client);esp_http_client_cleanup(client);return response;
 }
 bool associate(const Work& work) {
@@ -241,7 +277,7 @@ bool associate(const Work& work) {
   }
   if(time(nullptr)<1735689600){status("Clock unavailable; TLS upload deferred");return false;}return !stopped();
 }
-bool processChunk(Work& work,const char* directory,const char* hash,size_t sourceBytes,unsigned chunk,bool empty) {
+__attribute__((noinline)) bool processChunk(Work& work,const char* directory,const char* hash,size_t sourceBytes,unsigned chunk,bool empty) {
   char filename[100];snprintf(filename,sizeof(filename),"LORA-Tunnel-%.64s-%u.csv",hash,chunk);
   for(int service=0;service<3&&!stopped();++service) {
     if(!(work.mask&(1U<<service)))continue;
@@ -341,10 +377,12 @@ void pollSessionJobs(Work& work,const char* directory,const char* hash,size_t by
   }
   closeFile(jobs);
 }
-void processSession(Work& work,const char* path,char* line,char* row,DynamicJsonDocument& doc) {
-  char hash[65];size_t bytes=0;if(!closedSession(path,hash,bytes,line,doc))return;
+__attribute__((noinline)) void processSession(Work& work,const char* path) {
+  ParserStorage parser;
+  if(!parser.acquire(false)){workStatus(work,"Upload memory unavailable; originals kept");return;}
+  char hash[65];size_t bytes=0;if(!closedSession(path,hash,bytes,parser.line,*parser.doc))return;
   char directory[100];snprintf(directory,sizeof(directory),"%s/%s",root,hash);
-  if(work.pollOnly){pollSessionJobs(work,directory,hash,bytes);return;}
+  if(work.pollOnly){parser.release();pollSessionJobs(work,directory,hash,bytes);return;}
   {StorageLock lock;if(!SD.mkdir(directory)){workStatus(work,"Cannot create upload checkpoints on SD");return;}}
   bool alreadyComplete=true;
   for(int service=0;service<3;++service)if(work.mask&(1U<<service)) {
@@ -358,23 +396,32 @@ void processSession(Work& work,const char* path,char* line,char* row,DynamicJson
     Checkpoint budget;loadCheckpoint(directory,service,-1,hash,bytes,budget);budget.boot=bootId;budget.attempts=0;budget.retryAt=0;budget.epoch=work.epoch;
     if(!saveCheckpoint(directory,service,-1,hash,bytes,budget)){workStatus(work,"SD checkpoint failed");return;}
   }
+  if(!parser.acquire(true)){workStatus(work,"Upload memory unavailable; originals kept");return;}
   File source;UploadWriter out;{StorageLock lock;source=openFile(path,FILE_READ);}if(!source){workStatus(work,"Cannot read completed session on SD");return;}
   if(!stageHeader(out)){closeFile(source);closeFile(out);workStatus(work,"Cannot stage upload CSV on SD");return;}
   unsigned chunk=0,rows=0;size_t chunkBytes;{StorageLock lock;chunkBytes=out.size();}
   bool ok=true;
   while(!stopped()) {
-    const int count=readLine(source,line,LineCapacity);if(count==0)break;if(count==-2){ok=false;break;}if(count<0)continue;
-    doc.clear();if(deserializeJson(doc,line))continue;
-    const size_t length=upload::csvRow(doc.as<JsonVariantConst>(),row,upload::CsvRowCapacity);if(!length)continue;
+    size_t rowStart;{StorageLock lock;rowStart=source.position();}
+    const int count=readLine(source,parser.line,LineCapacity);if(count==0)break;if(count==-2){ok=false;break;}if(count<0)continue;
+    parser.doc->clear();if(deserializeJson(*parser.doc,parser.line))continue;
+    const size_t length=upload::csvRow(parser.doc->as<JsonVariantConst>(),parser.row,upload::CsvRowCapacity);if(!length)continue;
     if(chunkBytes+length>upload::CsvChunkLimit) {
       if(!finishCsv(out)){ok=false;break;}
+      closeFile(source);parser.release();
       if(!processChunk(work,directory,hash,bytes,chunk,false)){ok=false;break;}if(stopped())break;
-      ++chunk;rows=0;if(!stageHeader(out)){ok=false;break;}{StorageLock lock;chunkBytes=out.size();}
+      if(!parser.acquire(true)){workStatus(work,"Upload memory unavailable; originals kept");return;}
+      // The overflow row belongs to the next chunk. Reopen at its original
+      // offset and parse it again, retaining no row or JSON arena during TLS.
+      {StorageLock lock;source=openFile(path,FILE_READ);ok=source&&source.size()==bytes&&source.seek(rowStart);}
+      if(!ok)break;
+      ++chunk;rows=0;if(!stageHeader(out)){ok=false;break;}chunkBytes=out.size();
+      continue;
     }
-    if(!writeCsv(out,row,length)){ok=false;break;}chunkBytes+=length;++rows;
+    if(!writeCsv(out,parser.row,length)){ok=false;break;}chunkBytes+=length;++rows;
     taskYIELD();
   }
-  closeFile(source);
+  closeFile(source);parser.release();
   if(ok&&!stopped()&&finishCsv(out)) {
     if(chunk==0&&rows==0)work.skippedFiles=true;
     if(!processChunk(work,directory,hash,bytes,chunk,rows==0))return;
@@ -397,42 +444,44 @@ std::atomic<bool> workerFinished{false};
 void worker(void* argument) {
   Work* work=static_cast<Work*>(argument);
   const bool radioReady=true; // Cardputer's coordinator released BLE first.
-  char* line=nullptr;char* row=nullptr;DynamicJsonDocument* doc=nullptr;
+  sampleUploadResources();
   bool ok=radioReady&&!stopped();
-  if(ok) {
-    line=static_cast<char*>(malloc(LineCapacity));
-    if(!work->pollOnly)row=static_cast<char*>(malloc(upload::CsvRowCapacity));
-    doc=new(std::nothrow) DynamicJsonDocument(4096);
-    ok=line&&(work->pollOnly||row)&&doc&&doc->capacity()>=4096;
-    if(!ok)status("Upload memory unavailable; try after restart");
-  }
-  if(ok) {StorageLock lock;ok=SD.mkdir(root);if(!ok)status("Upload staging unavailable");}
-  if(ok)ok=associate(*work);
-  if(ok) {
-    associationFailures=0;
-    File directory;{StorageLock lock;directory=openFile("/sessions");}
-    if(!directory)status("No completed sessions available");
-    while(directory&&!stopped()) {
-      char path[100]{};bool isFile=false;
-      {StorageLock lock;File entry=directory.openNextFile();if(!entry)break;
-        isFile=!entry.isDirectory();const char* name=entry.name();const char* base=strrchr(name,'/');base=base?base+1:name;
-        if(strlen(base)<70)snprintf(path,sizeof(path),"/sessions/%s",base);entry.close();}
-      const size_t n=strlen(path);
-      if(isFile&&n>6&&!strcmp(path+n-6,".jsonl"))processSession(*work,path,line,row,*doc);
+  if(work->selfCheck) {
+    {ParserStorage parser;ok=ok&&parser.acquire(true);}
+    sampleUploadResources();
+    if(ok)ok=delayUntil(50);
+    selfCheckState=ok?2:3;
+    status(ok?"Offline upload memory check passed":"Offline upload memory check failed");
+  } else {
+    if(ok) {StorageLock lock;ok=SD.mkdir(root);if(!ok)status("Upload staging unavailable");}
+    if(ok)ok=associate(*work);
+    if(ok) {
+      associationFailures=0;
+      File directory;{StorageLock lock;directory=openFile("/sessions");}
+      if(!directory)status("No completed sessions available");
+      while(directory&&!stopped()) {
+        char path[100]{};bool isFile=false;
+        {StorageLock lock;File entry=directory.openNextFile();if(!entry)break;
+          isFile=!entry.isDirectory();const char* name=entry.name();const char* base=strrchr(name,'/');base=base?base+1:name;
+          if(strlen(base)<70)snprintf(path,sizeof(path),"/sessions/%s",base);entry.close();}
+        const size_t n=strlen(path);
+        if(isFile&&n>6&&!strcmp(path+n-6,".jsonl"))processSession(*work,path);
+      }
+      closeFile(directory);
+      if(!stopped()&&!work->resultReported) {
+        status(work->pollOnly?"No pending upload jobs":work->alreadyProcessed&&!work->skippedFiles?
+          "No new data; already processed":"No eligible data; nothing uploaded");
+      }
+    } else if(radioReady&&!stopped()) {
+      const unsigned failures=associationFailures.fetch_add(1)+1;
+      if(failures<3)for(int service=0;service<3;++service)if(work->mask&(1U<<service)){
+        if(work->pollOnly||(work->pollMask&(1U<<service)))scheduleJobPoll(service,upload::retryDelay(failures));else scheduleRetry(service,upload::retryDelay(failures));}
     }
-    closeFile(directory);
-    if(!stopped()&&!work->resultReported) {
-      status(work->pollOnly?"No pending upload jobs":work->alreadyProcessed&&!work->skippedFiles?
-        "No new data; already processed":"No eligible data; nothing uploaded");
-    }
-  } else if(radioReady&&!stopped()) {
-    const unsigned failures=associationFailures.fetch_add(1)+1;
-    if(failures<3)for(int service=0;service<3;++service)if(work->mask&(1U<<service)){
-      if(work->pollOnly||(work->pollMask&(1U<<service)))scheduleJobPoll(service,upload::retryDelay(failures));else scheduleRetry(service,upload::retryDelay(failures));}
+    WiFi.disconnect(false,false);
   }
-  WiFi.disconnect(false,false);
   if(stopped())status("Upload cancelled; local logs retained");
-  free(line);free(row);delete doc;memset(&work->settings,0,sizeof(work->settings));delete work;
+  sampleUploadResources();++uploadRuns;
+  memset(&work->settings,0,sizeof(work->settings));delete work;
 #if defined(LORA_TUNNEL_CARDPUTER_ADV)
   // The existing writer is pinned to this same core. Park after every resource
   // is gone, so it can delete a non-running task and reclaim this entire stack
@@ -458,6 +507,7 @@ void finishMaintenance() {
 }
 void uploadMaintenance(void* argument) {
   Work* work=static_cast<Work*>(argument);
+  const bool checking=work->selfCheck;
   bool paused=false;
   if(!stopped()) {
     status("Releasing BLE memory for upload");
@@ -480,9 +530,22 @@ void uploadMaintenance(void* argument) {
     char completion[sizeof(statusText)];uploaderStatus(completion,sizeof(completion));
     status("Restoring BLE scanner");
     if(scannersRestoreBleAfterUpload())status(completion);
-    else status("BLE restore failed; restart before capture");
+    else {status("BLE restore failed; restart before capture");if(checking)selfCheckState=3;}
   }
+  if(checking&&(stopped()||selfCheckState.load()!=2))selfCheckState=3;
 }
+#endif
+}
+UploadMetrics uploaderMetrics(){return {uploadRuns.load(),uploadMinFree.load(),uploadSmallestBlock.load(),uploadStackMargin.load(),selfCheckState.load()};}
+bool uploaderSelfCheck() {
+#if defined(LORA_TUNNEL_CARDPUTER_ADV)
+  if(busy || !loggerIdle() || !scannersCaptureReady())return false;
+  Work* work=new(std::nothrow) Work;if(!work)return false;
+  uploaderCancel();work->selfCheck=true;cancelled=false;busy=true;selfCheckState=1;
+  if(loggerRequestMaintenance(uploadMaintenance,work,finishMaintenance))return true;
+  delete work;busy=false;selfCheckState=3;return false;
+#else
+  return false;
 #endif
 }
 bool uploaderBegin(){bootId=esp_random();initialPending=true;Preferences prefs;if(prefs.begin("lt-upload",true)){settingsEpoch=prefs.getUInt("epoch",1);prefs.end();}return true;}
