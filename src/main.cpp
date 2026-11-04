@@ -30,6 +30,7 @@ bool startAfterUpload=false;
 bool initWriter=false,initScanner=false,initMemory=false;
 uint32_t heapAfterHardware=0,heapAfterUi=0,heapAfterConfig=0,heapBeforeScanners=0;
 bool shutdownPending=false,shutdownHadSession=false;
+bool configScratchStartup=false;
 uint32_t shutdownAt=0,shutdownErrors=0,shutdownDrops=0;
 esp_timer_handle_t shutdownTimer=nullptr;
 bool quietActive=false,quietRadios=false,quietDisplay=false;
@@ -54,6 +55,13 @@ struct Summary {
   uint64_t last=0;
 };
 Summary summaries[board::SUMMARY_RECORDS];
+
+bool configScratchAllowed() {
+  // Configuration shares display scratch only while this main task owns an
+  // idle device. Startup is a distinct phase before writer/scanner tasks exist.
+  return !shutdownPending && !quietActive && !capturing.load() && !stopping &&
+      !uploaderBusy() && (configScratchStartup || loggerIdle());
+}
 
 void callback(ui::Action action,int field,const char* value) {
   Action request{}; request.action=action; request.field=field;
@@ -489,7 +497,12 @@ void setup() {
   if(!busMutex || !actions || !captureQueue) { Serial.println("Allocation failure; halted"); while(true) delay(1000); }
   const bool displayOK=hw::begin(); hardwareReady=displayOK;
   heapAfterHardware=ESP.getFreeHeap();
-  if(displayOK) { ui::begin(callback); gnssBegin(); }
+  if(displayOK) {
+    ui::begin(callback);
+    configScratchStartup=true;
+    ui::setConfigScratchGuard(configScratchAllowed);
+    gnssBegin();
+  }
   heapAfterUi=ESP.getFreeHeap();
   const bool memoryOK=ESP.getFlashChipSize()==board::FLASH_BYTES && ESP.getPsramSize()==board::PSRAM_BYTES;
   if(displayOK && mountStorage()) {
@@ -499,6 +512,7 @@ void setup() {
     loadRegionPreference();
     strlcpy(model.notice,"No SD. Setup > Retry SD",sizeof(model.notice));
   }
+  configScratchStartup=false;
   heapAfterConfig=ESP.getFreeHeap();
   const bool writerOK=displayOK && loggerBegin();
   heapBeforeScanners=ESP.getFreeHeap();

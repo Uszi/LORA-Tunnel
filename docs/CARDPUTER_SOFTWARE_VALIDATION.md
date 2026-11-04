@@ -1,8 +1,17 @@
 # Cardputer 0.4.0-beta.1 software candidate
 
 Updated 2026-11-03 (America/New_York). **Public release remains blocked.**
-**HW6 is installed by a verified USB application update and is stopped after
-its stationary 30-minute Wardriver test.** The user confirmed custom tones
+**HW7 is installed by a verified USB application update and capture is stopped.**
+Its boot, partitions and NVS were independently read back unchanged before the
+first boot. Startup reports SD, LoRa, keyboard and audio ready; the new explicit
+settings-save workload is pending. Historical HW6 results below remain scoped
+to that prior binary.
+A later explicit region save on the spare card lowered its lifetime minimum
+internal heap to **16,908 bytes**, failing the **32,768-byte** resource target.
+The save succeeded with LoRa ready and no reported allocation failure, but this
+settings workload is not accepted. The separate stationary capture result below
+remains scoped to that earlier workload; the HW7 fix below must be retested
+on the physical device. The user confirmed custom tones
 without repeating during the short Recon check. The 30-minute run passed its
 continuity and resource checks, but the strict overall result is **failed**:
 the required 30 new UI presentation samples were not exercised (`ui_samples`
@@ -418,3 +427,94 @@ acceptance with cancellation and capture resumption. The
 [publication gate](CARDPUTER_RELEASE.md) define those checks. Build and host-test
 success does not authorize enabling the public installer or submitting the
 firmware to M5Burner.
+
+## Later HW6 spare-card and region-save observations
+
+A user-provided disposable spare card initially failed to mount. The app,
+keyboard, cap interface and speaker remained initialized; Start correctly
+remained stopped with storage unavailable. This was not an absent-card boot
+or a full-card test. The original filesystem was not observed. After the user
+formatted the spare as FAT32, a fresh boot mounted it with zero reported errors.
+
+The user explicitly selected and saved US. LoRa became ready, SD stayed ready,
+and no allocation failure was latched. However, the lifetime minimum internal
+heap fell from **37,780 to 16,908 bytes**, a **15,860-byte shortfall** against the
+32 KiB target. Sampled free heap recovered to **39,180 bytes**, with a largest
+block of **29,684 bytes**. Recovery after saving does not erase the failed reserve
+measurement. Per-region heap diagnostics were preserved before any further
+reboot; they report the same aggregate minimum. Diagnostic output itself can
+allocate a small stdio buffer, so its later free-heap sample is a separate value.
+
+Source inspection found a 16,384-byte configuration document overlapping the
+pinned Arduino VFS's initial 4,096-byte stdio buffer during save operations.
+The NVS region write occurs after the document scope. This allocation overlap
+explains the measured dip closely; it is not a traced allocation-by-allocation
+attribution. The planned fix must preserve the complete configuration limits
+and imported fields, retain capture buffers, and be physically retested rather
+than lowering the resource target.
+
+Loading a valid region from SD does not automatically mirror it into NVS.
+Explicit region saves write and verify `lt-region:code`; with SD unavailable,
+startup uses that device preference or remains UNSET/off if no valid preference
+is available. The earlier spare-card LoRa-off status alone does not prove an RF
+fault or establish the exact prior NVS contents. Independent device-preference
+persistence after this explicit save is still pending.
+
+## HW7 configuration-memory and checked-storage candidate
+
+HW7 uses a bounded **16,896-byte lease** from the existing **32,400-byte RGB332
+framebuffer** while a synchronous stopped configuration operation runs: 16,384
+bytes retain the full JSON arena and 512 bytes provide caller-owned file
+buffering. Acquisition requires the UI/main task, startup or an idle writer,
+and no capture, save drain, upload, shutdown or existing lease. It waits for
+real display transfers to finish. Input and presentation pause until every file
+is closed and the document is destroyed; borrowed pixels are wiped and a full
+frame is rebuilt. The previous physical LCD image remains visible meanwhile.
+There is no extra JSON heap allocation or heap fallback, and no capture-buffer,
+raw-evidence, parser-capacity or radio-lifecycle reduction.
+
+The Cardputer configuration path now uses checked stdio with the caller-owned
+512-byte buffer. The shared logger uses unbuffered stdio with its existing
+8 KiB staging buffer and 512-byte Cardputer SPI chunks. Both check writes,
+stream errors, flush, sync and close. Exclusive session creation avoids
+truncating a colliding name. Host fault injection verifies delayed failures,
+sticky first errors, handle cleanup and accounting; it is not a physical
+full-card or power-loss result. Heltec retains its existing configuration
+memory/File path while receiving the shared checked logger.
+
+Software validation for the frozen source passed: **134 native cases**,
+**98 Python tests**, **6 Node installer tests**, **3 schemas / 9 examples**,
+**214 keyboard assertions**, **149 UI checks / 18 synthetic previews**,
+**370 Cardputer / 91 Heltec configuration checks**, **583 Cardputer / 498 Heltec
+checked-storage/logger checks**, **127 capture / 278 AP inventory checks**,
+**21 logger-capacity checks**, **516 Cardputer / 425 Heltec uploader checks**,
+and **94 actual-session/guard checks**. Upload tests use offline fixtures.
+
+Both the Cardputer and Heltec Expansion V2 targets compiled successfully;
+Cardputer also passed the generated linker policy. The Heltec build is a
+regression check and does not replace its published binary. Exact build inputs are bound by the 76-file source digest
+`33ad4e41a1538562f6881077ec814eb177af65a805eece0a395b262c730eb31b`.
+The application is **1,732,032 bytes**, leaving **1,610,304 bytes** below its
+3,342,336-byte ceiling. The **1,797,568-byte factory** contains that exact same
+application. Candidate SHA-256 values are:
+
+| Artifact | SHA-256 |
+| --- | --- |
+| HW7 Launcher application | `a8fed2ae0eeb06203bba9562d2da8de2d5b9a8c69e5786532ec0cc2c1e017ed7` |
+| HW7 factory at 0x0 | `5bdf2707c42cd87706bf8a3d022eb0ba93e879a03893c2d497e2c93ed2349548` |
+| HW7 relink companion | `ebe3512f490f9d99bb9a549d6e6627b1549e5ddf0457617bbf84a5b4cc0cc205` |
+
+Before installation, a fresh private 8 MiB flash backup was taken and the
+previous HW6 application verified. The new application was written at 0x10000
+and independently verified. A separate 64 KiB readback before reset proved
+that bootloader, partition table, OTA metadata and namespace-scoped NVS bytes
+were unchanged. This is a direct USB application update, not a HW7 factory,
+web-installer or Launcher installation result.
+
+Initial HW7 status reports capture and upload stopped; SD, LoRa, keyboard,
+cap and audio ready; zero errors and zero allocation failures. Sampled free
+heap is **39,600 bytes**, largest block **30,708 bytes**, and startup lifetime
+minimum **38,448 bytes**. These startup values do not establish the post-save
+minimum or sustained behavior. Explicit region/credential save, affected SD
+capture and failure handling, and all outstanding acceptance checks remain
+pending. The historical HW6 16,908-byte save minimum remains a failed result.

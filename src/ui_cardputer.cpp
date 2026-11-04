@@ -25,6 +25,10 @@ Page page=Page::Home, settingsParent=Page::Home;
 ui::Handler handler=nullptr;
 lgfx::LGFX_Sprite canvas;
 void* pixels=nullptr;
+ui::ConfigScratchGuard configScratchGuard=nullptr;
+TaskHandle_t uiTask=nullptr;
+void* scratchMemory=nullptr;
+size_t scratchBytes=0;
 bool buffered=false, dirty=true, splashShown=false, onboarded=false;
 bool regionOnboarding=false;
 uint32_t splashAt=0, paintedAt=0;
@@ -278,6 +282,7 @@ void splash() {
   label(TUNNEL_VERSION,4,125,MUTED,38);
 }
 void present() {
+  if(scratchMemory)return;
   if(buffered)canvas.pushSprite(&hw::display(),0,0);
   if(inputPending) {
     const uint32_t elapsed=millis()-inputAt;
@@ -291,6 +296,8 @@ void present() {
 
 namespace ui {
 void begin(Handler onAction) {
+  if(scratchMemory)return;
+  uiTask=xTaskGetCurrentTaskHandle();
   handler=onAction;page=settingsParent=Page::Home;focus=tab=filter=selectedMatch=editField=0;
   dirty=true;splashShown=onboarded=false;regionOnboarding=false;eraseInput();
   inputPending=false;inputMaximum=latencyCount=latencyNext=latencyTotal=0;
@@ -300,9 +307,32 @@ void begin(Handler onAction) {
   gfx().setFont(&lgfx::fonts::Font0);gfx().setTextWrap(false,false);
 
 }
+void setConfigScratchGuard(ConfigScratchGuard guard) {
+  if(!scratchMemory && uiTask && xTaskGetCurrentTaskHandle()==uiTask)configScratchGuard=guard;
+}
+void* acquireConfigScratch(size_t bytes) {
+  if(!bytes || scratchMemory || !buffered || !pixels || !uiTask ||
+      xTaskGetCurrentTaskHandle()!=uiTask || !configScratchGuard || !configScratchGuard())return nullptr;
+  constexpr size_t alignment=alignof(std::max_align_t);
+  const uintptr_t first=reinterpret_cast<uintptr_t>(pixels);
+  const uintptr_t aligned=(first+alignment-1)&~uintptr_t(alignment-1);
+  const size_t padding=size_t(aligned-first);
+  if(bytes>size_t(WIDTH*HEIGHT)-padding)return nullptr;
+  // Wait on the real panel, not the sprite (whose waitDMA is a no-op).
+  hw::display().waitDMA();
+  hw::display().waitDisplay();
+  scratchMemory=reinterpret_cast<void*>(aligned);scratchBytes=bytes;
+  return scratchMemory;
+}
+void releaseConfigScratch(void* memory) {
+  if(!memory || memory!=scratchMemory || xTaskGetCurrentTaskHandle()!=uiTask)return;
+  volatile uint8_t* bytes=static_cast<volatile uint8_t*>(scratchMemory);
+  for(size_t i=0;i<scratchBytes;++i)bytes[i]=0;
+  scratchMemory=nullptr;scratchBytes=0;dirty=true;
+}
 void navigation(uint8_t,const Model&) {} // Cardputer keyboard is the primary input.
 void keyboard(const input::KeyEvent& event,const Model& model) {
-  if(model.shutting_down || !splashShown || millis()-splashAt<1000)return;
+  if(scratchMemory || model.shutting_down || !splashShown || millis()-splashAt<1000)return;
   if(event.code==input::KeyCode::None)return;
   if(!inputPending) {inputPending=true;inputAt=millis();}
   dirty=true;
@@ -343,9 +373,10 @@ uint32_t inputLatencyP95Ms() {
 }
 uint32_t inputLatencyMaxMs() {return inputMaximum;}
 uint32_t inputLatencySamples() {return latencyTotal;}
-bool allowsBackgroundUpload() {return page!=Page::Edit && page!=Page::Credentials && page!=Page::Uploads && page!=Page::Power;}
-bool allowsUploadJobPolling() {return page!=Page::Edit && page!=Page::Credentials && page!=Page::Power;}
+bool allowsBackgroundUpload() {return !scratchMemory && page!=Page::Edit && page!=Page::Credentials && page!=Page::Uploads && page!=Page::Power;}
+bool allowsUploadJobPolling() {return !scratchMemory && page!=Page::Edit && page!=Page::Credentials && page!=Page::Power;}
 void tick(const Model& model) {
+  if(scratchMemory)return;
   if(!splashShown) {splash();present();splashShown=true;splashAt=millis();return;}
   const uint32_t now=millis();if(now-splashAt<1000)return;
   if(!onboarded) {onboarded=true;if(!model.region_selection_made)openRegions(model,true);}

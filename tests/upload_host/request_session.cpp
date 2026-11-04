@@ -15,6 +15,7 @@ struct Config {bool buzzer=true;unsigned recon_alert_min=2;} config;
 struct Counters {std::atomic<unsigned> storage_errors{0},log_drops{0};} counters;
 bool shutdownHadSession=false;unsigned shutdownAt=0,shutdownErrors=0,shutdownDrops=0;
 bool shutdownPending=false,quietActive=false,startAfterUpload=false,ready=true,stopping=false;
+bool configScratchStartup=false;
 bool uploadBusy=false,bleReady=true,storage=true,loggerFree=true,cancelled=false,acceptMarker=true;
 std::atomic<bool> capturing{false};std::atomic<unsigned> sessionId{0};unsigned totals[3]{},reconTotal=0;
 std::atomic<CaptureMode> captureMode{CaptureMode::Wardriver};
@@ -51,7 +52,7 @@ void scannersStart(){++radioStarts;}
 #include "request_session_actual.inc"
 unsigned checks=0;
 void expect(bool condition,const char* message){++checks;if(!condition){std::cerr<<"FAIL "<<message<<"\n";std::exit(1);}}
-void reset(){alertPlayer.setEnabled(false);alertHistory.reset();alertHistoryNotice=false;lastAlert=0;sounding=toneStarts=toneStops=0;audioReady=config.buzzer=true;config.recon_alert_min=2;hostMillis=1000;queueAlertOnDrain=false;drainSilent=stopSilent=endCaptureSilent=true;model.notice[0]=0;shutdownHadSession=false;for(auto& s:summaries)s=Summary{};shutdownPending=quietActive=startAfterUpload=stopping=uploadBusy=cancelled=false;ready=bleReady=storage=loggerFree=acceptMarker=true;capturing=false;model.recon=false;starts=logged=radioStarts=drains=stops=fixReads=0;captureMode=CaptureMode::Wardriver;sessionId=0;lastMarker=Observation{};}
+void reset(){configScratchStartup=false;alertPlayer.setEnabled(false);alertHistory.reset();alertHistoryNotice=false;lastAlert=0;sounding=toneStarts=toneStops=0;audioReady=config.buzzer=true;config.recon_alert_min=2;hostMillis=1000;queueAlertOnDrain=false;drainSilent=stopSilent=endCaptureSilent=true;model.notice[0]=0;shutdownHadSession=false;for(auto& s:summaries)s=Summary{};shutdownPending=quietActive=startAfterUpload=stopping=uploadBusy=cancelled=false;ready=bleReady=storage=loggerFree=acceptMarker=true;capturing=false;model.recon=false;starts=logged=radioStarts=drains=stops=fixReads=0;captureMode=CaptureMode::Wardriver;sessionId=0;lastMarker=Observation{};}
 Observation detection(unsigned identity=1) {
  Observation event;event.kind=Kind::Ble;event.mode=CaptureMode::Recon;
  std::snprintf(event.address,sizeof(event.address),"02:00:00:00:%02x:%02x",(identity>>8)&255,identity&255);
@@ -131,7 +132,26 @@ void testAlerts(){
  strlcpy(model.notice,"keep later notice",sizeof(model.notice));emitDetectionAlert(detection(130),true,hostMillis+2000);
  expect(!std::strcmp(model.notice,"keep later notice")&&alertHistory.size()==128,"full-history notice emits only once without eviction");
 }
+void testConfigScratchGuard(){
+ reset();expect(configScratchAllowed(),"stopped initialized idle device may lend framebuffer scratch");
+ loggerFree=false;expect(!configScratchAllowed(),"pending writer I/O cannot share config framebuffer scratch");
+ configScratchStartup=true;expect(configScratchAllowed(),"startup may load config before writer initialization");
+ configScratchStartup=false;loggerFree=true;
+ for(unsigned startup=0;startup<2;++startup){
+  for(unsigned gate=0;gate<5;++gate){reset();configScratchStartup=startup;loggerFree=!startup;
+   switch(gate){case 0:capturing=true;break;case 1:stopping=true;break;case 2:uploadBusy=true;break;case 3:shutdownPending=true;break;case 4:quietActive=true;break;}
+   expect(!configScratchAllowed(),"capture, save, upload, shutdown or quiet blocks scratch in every phase");
+  }
+ }
+ reset();uploadBusy=true;expect(!configScratchAllowed(),"upload completion must release its scratch ownership first");
+ uploadBusy=false;expect(configScratchAllowed(),"clean upload completion restores idle config access");
+ requestSession();expect(!configScratchAllowed(),"actual Start closes config scratch access");
+ requestSession();expect(!configScratchAllowed(),"actual Stop keeps scratch closed while saving");
+ serviceStopMarker();expect(configScratchAllowed(),"actual completed Stop restores config scratch access");
+ reset();
+}
 int main(){
+ testConfigScratchGuard();
  reset();bleReady=false;requestSession();expect(logged==0&&starts==0&&!capturing,"failed BLE restoration cannot open a session");
  reset();uploadBusy=true;requestSession();expect(cancelled&&startAfterUpload&&logged==0,"Start cancels upload and defers opening");
  uploadBusy=false;bleReady=false;startAfterUpload=false;requestSession();expect(logged==0&&starts==0,"deferred Start remains closed after restore failure");

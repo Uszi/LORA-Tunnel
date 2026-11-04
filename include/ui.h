@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <cstddef>
 #include "keyboard_input.h"
 
 namespace ui {
@@ -26,6 +27,14 @@ enum class Action { ToggleSession, ToggleMode, SaveCredential, RetryStorage, Tog
 // bounded action queue immediately; do not access SD, radio, or draw here.
 using Handler = void (*)(Action, int, const char*);
 void begin(Handler handler);
+// Cardputer-only temporary use of the existing RGB332 pixels, never a second
+// framebuffer or heap fallback. The main task installs an authoritative idle
+// guard before configuration operations. A lease suppresses drawing/input until
+// release, which wipes scratch and forces a complete redraw. Heltec returns null.
+using ConfigScratchGuard = bool (*)();
+void setConfigScratchGuard(ConfigScratchGuard guard);
+void* acquireConfigScratch(size_t bytes);
+void releaseConfigScratch(void* memory);
 // No display/SPI access. Call from the same task as tick(), outside the bus lock.
 // Bitmask follows hw::Next=1, Select=2, Back=4. Disabled input is discarded.
 void navigation(uint8_t events, const Model& model);

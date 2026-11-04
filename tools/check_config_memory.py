@@ -23,7 +23,7 @@ def check() -> str:
         environment = os.environ.copy()
         environment["PATH"] = str(Path(cxx).parent) + os.pathsep + environment.get("PATH", "")
         results = []
-        for target, flags in [("Cardputer", ["-DLORA_TUNNEL_CARDPUTER_ADV=1"]), ("Heltec", [])]:
+        for target, flags in [("Cardputer", ["-DLORA_TUNNEL_CARDPUTER_ADV=1", "-DLORA_TUNNEL_STORAGE_TEST=1", str(ROOT / "src/checked_sd_file.cpp")]), ("Heltec", [])]:
             subprocess.run(args + flags, cwd=ROOT, check=True, env=environment)
             result = subprocess.run([str(binary)], cwd=ROOT, check=True, capture_output=True, text=True, env=environment)
             results.append(target + ": " + result.stdout.strip())

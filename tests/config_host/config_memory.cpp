@@ -3,9 +3,9 @@
 #include <iostream>
 #include <map>
 namespace host {
-bool failScratch=false,failRules=false;size_t scratchLive=0,scratchPeak=0,scratchCalls=0;
+bool failScratch=false,failRules=false;size_t scratchLive=0,scratchPeak=0,scratchCalls=0,heapScratchCalls=0;
 struct ScratchAllocator {
-  void* allocate(size_t bytes){++scratchCalls;if(failScratch)return nullptr;void* p=std::malloc(bytes);if(p){scratchLive+=bytes;scratchPeak=std::max(scratchPeak,scratchLive);}return p;}
+  void* allocate(size_t bytes){++heapScratchCalls;++scratchCalls;if(failScratch)return nullptr;void* p=std::malloc(bytes);if(p){scratchLive+=bytes;scratchPeak=std::max(scratchPeak,scratchLive);}return p;}
   void deallocate(void* pointer){if(pointer)scratchLive-=16384;std::free(pointer);}
   void* reallocate(void*,size_t){return nullptr;}
 };
@@ -24,6 +24,9 @@ std::map<std::string,std::string> files,preferences;std::vector<std::string> dir
 std::string failWritePath,failOpenPath;bool failRename=false,failPreferences=false;
 }
 ConfigSD SD;
+#if defined(LORA_TUNNEL_CARDPUTER_ADV)
+#include "checked_backend.h"
+#endif
 namespace tunnel {namespace recon {
 bool parseAddress(const char* text,uint8_t result[6]) {unsigned bytes[6];if(!text||std::sscanf(text,"%02x:%02x:%02x:%02x:%02x:%02x",bytes,bytes+1,bytes+2,bytes+3,bytes+4,bytes+5)!=6)return false;for(unsigned i=0;i<6;++i)result[i]=uint8_t(bytes[i]);return true;}
 }}
@@ -33,11 +36,30 @@ void expect(bool value,const char* description){++checks;if(!value){std::cerr<<"
 const char* primary="/lora-tunnel/config.json";
 const char* ruleFile="/lora-tunnel/detection_rules.json";
 const char* initial=R"({"schema":1,"lora":{"region":"UNSET","selection_complete":false,"enabled":false},"credentials":{"wigle_api_name":"old-name","wigle_api_token":"old-token","wifi_ssid":"Home","wifi_password":"password"},"extension":{"preserved":"yes"}})";
-void reset(){expect(host::openFiles==0,"all file handles closed between operations");host::bufferCalls=host::failBufferCall=host::peakRegularFiles=0;host::files.clear();host::directories.clear();host::preferences.clear();host::failWritePath.clear();host::failOpenPath.clear();host::failRename=host::failPreferences=host::failScratch=false;host::scratchCalls=host::scratchPeak=0;expect(host::scratchLive==0,"no document survives a prior operation");host::files[primary]=initial;host::files[ruleFile]=R"({"schema":1,"rules":[]})";}
-void released(){expect(host::scratchLive==0,"16 KiB scratch released on return");}
+void reset(){
+#if defined(LORA_TUNNEL_CARDPUTER_ADV)
+  host::resetCheckedFaults();
+#endif
+expect(host::openFiles==0,"all file handles closed between operations");host::bufferCalls=host::failBufferCall=host::peakRegularFiles=0;host::files.clear();host::directories.clear();host::preferences.clear();host::failWritePath.clear();host::failOpenPath.clear();host::failRename=host::failPreferences=host::failScratch=false;host::scratchCalls=host::scratchPeak=host::heapScratchCalls=0;expect(host::scratchLive==0,"no document survives a prior operation");host::files[primary]=initial;host::files[ruleFile]=R"({"schema":1,"rules":[]})";}
+void released(){expect(host::scratchLive==0,"configuration scratch released on return");
+#if defined(LORA_TUNNEL_CARDPUTER_ADV)
+ expect(!host::leaseActive&&host::checkedHandles.empty(),"lease and all checked file handles end on return");
+ expect(std::all_of(host::frameScratch,host::frameScratch+16896,[](uint8_t b){return b==0;}),"all JSON and file-buffer secret bytes are wiped on release");
+#endif
+}
 }
 int main(){using namespace tunnel;
-  reset();expect(loadConfig(),"load valid settings");released();expect(rules==nullptr&&ruleCount==0,"empty rules allocate no persistent slab");expect(!configAllocationFailed&&!rulesLoadFailed,"successful load has clear failure flags");expect(host::scratchPeak==16384,"full unchanged document capacity");
+#if defined(LORA_TUNNEL_CARDPUTER_ADV)
+  storage::setOperationsForTest(&host::checkedOperations);
+#endif
+  reset();expect(loadConfig(),"load valid settings");released();expect(rules==nullptr&&ruleCount==0,"empty rules allocate no persistent slab");expect(!configAllocationFailed&&!rulesLoadFailed,"successful load has clear failure flags");
+#if defined(LORA_TUNNEL_CARDPUTER_ADV)
+  expect(host::scratchPeak==16896,"16 KiB JSON and512-byte I/O share the existing framebuffer lease");
+  {ScopedConfigDocument operation;expect(operation.document.capacity()==16384,"full accepted JSON arena capacity is retained");}
+  released();
+#else
+  expect(host::scratchPeak==16384,"Heltec retains full heap document capacity");
+#endif
   expect(saveCredential(1,"replacement-token"),"save credential");released();expect(!std::strcmp(config.wigle_token,"replacement-token"),"runtime credential updated after verified save");expect(host::files[primary].find("\"preserved\":\"yes\"")!=std::string::npos,"unknown document fields preserved");expect(host::files.count("/lora-tunnel/config.bak")>0,"atomic backup retained");
   expect(saveAutoUpload(1,true),"save service toggle");released();expect(config.auto_wardrift,"runtime service toggle applied");
   const auto region=saveLoRaRegion("US",true);released();expect(region.applied&&region.sd_saved&&region.nvs_saved,"SD-first region persistence unchanged");expect(host::preferences["lt-region:code"]=="US","NVS code readback stored");
@@ -88,5 +110,58 @@ int main(){using namespace tunnel;
   host::failBufferCall=0;expect(loadConfig(),"load recovers after file buffer failure");released();
   expect(host::peakRegularFiles<=1,"configuration uses at most one regular file handle");
 #endif
-  std::cout<<"Config memory host: "<<checks<<" checks passed; 16 KiB scratch lifetime and exact rule storage verified.\n";
+
+  // A large accepted extension must survive every setting operation, including
+  // credentials at their maximum supported length and nested unknown values.
+  reset();
+  const std::string large(12000,'Z');
+  host::files[primary]=std::string(initial).substr(0,std::strlen(initial)-1)+",\"large\":\""+large+"\",\"extra\":[null,true,17,{\"keep\":\"quoted \\\" and slash \\\\\"}]}";
+  expect(loadConfig(),"large unknown fields remain accepted at full arena capacity");released();
+  const std::string maxToken(127,'T');
+  expect(saveCredential(1,maxToken.c_str()),"maximum credential saves beside large unknown fields");released();
+  expect(saveAutoUpload(2,true),"large document service preference saves");released();
+  expect(saveLoRaRegion("US",true).sd_saved,"large document region saves");released();
+  ArduinoJson::StaticJsonDocument<16384> parsed;
+  expect(!deserializeJson(parsed,host::files[primary]),"large saved document parses intact");
+  expect(parsed["large"].as<std::string>()==large&&parsed["credentials"]["wigle_api_token"].as<std::string>()==maxToken&&parsed["extension"]["preserved"]=="yes","large and legacy unknown fields plus credential preserved");
+  expect(parsed["extra"][0].isNull()&&parsed["extra"][1]==true&&parsed["extra"][2]==17&&parsed["extra"][3]["keep"].is<const char*>(),"nested unknown values and escapes survive verified save");
+  // File bytes can fit while a dense JSON array needs more than16 KiB of slots.
+  // NoMemory is not permission to seed over that original or change NVS.
+  reset();std::string dense=std::string(initial).substr(0,std::strlen(initial)-1)+",\"dense\":[";
+  for(unsigned i=0;i<1200;++i){if(i)dense+=',';dense+="{}";}dense+="]}";
+  expect(dense.size()<16384,"adversarial dense input is within the unchanged file limit");host::files[primary]=dense;
+  host::preferences["lt-region:code"]="EU_868";
+  const auto denseResult=saveLoRaRegion("US",true);released();
+  expect(!denseResult.applied&&configAllocationFailed&&host::files[primary]==dense&&host::preferences["lt-region:code"]=="EU_868","arena exhaustion preserves original and NVS without fallback seeding");
+  expect(!loadConfig()&&configAllocationFailed&&configLoadState==ConfigLoadState::Invalid,"dense import fails visibly without heap fallback");released();
+#if defined(LORA_TUNNEL_CARDPUTER_ADV)
+  struct Fault {std::string* path;const char* file;const char* name;};
+  const Fault faults[]={
+    {&host::failReadPath,primary,"source read"},
+    {&host::failClosePath,primary,"source close"},
+    {&host::failStatPath,primary,"source stat"},
+    {&host::failFlushPath,"/lora-tunnel/config.tmp","temporary flush"},
+    {&host::failSyncPath,"/lora-tunnel/config.tmp","temporary fsync"},
+    {&host::failClosePath,"/lora-tunnel/config.tmp","temporary close"},
+    {&host::failReadPath,"/lora-tunnel/config.tmp","readback read"},
+    {&host::failStatPath,"/lora-tunnel/config.bak","backup stat"}
+  };
+  for(const auto& fault:faults){
+    reset();expect(loadConfig(),"fault baseline loads");released();
+    const auto preserved=host::files[primary];const std::string oldToken=config.wigle_token;
+    host::preferences["lt-region:code"]="EU_868";*fault.path=fault.file;
+    expect(!saveCredential(1,"must-not-commit"),fault.name);released();
+    expect(host::files[primary]==preserved&&config.wigle_token==oldToken&&!host::files.count("/lora-tunnel/config.tmp"),"I/O failure preserves primary/live credential and removes temp");
+    expect(!saveLoRaRegion("US",true).applied&&host::preferences["lt-region:code"]=="EU_868","I/O failure cannot fall through into NVS");released();
+    fault.path->clear();expect(saveCredential(1,"recovered"),"next save recovers after I/O fault");released();
+    expect(host::heapScratchCalls==0&&host::scratchPeak==16896,"successful and failed saves never allocate a JSON heap arena");
+  }
+  reset();expect(loadConfig(),"mkdir fault baseline loads");released();const auto untouched=host::files[primary];host::failMkdir=true;
+  expect(!saveCredential(1,"reject")&&host::files[primary]==untouched,"directory failure rejects save before any source mutation");released();
+  host::failMkdir=false;expect(saveCredential(1,"after-mkdir"),"save recovers after directory failure");released();
+  // Even an explicitly denied lease leaves the UI buffer and on-disk file intact.
+  const auto safe=host::files[primary];host::failScratch=true;const auto heldCalls=host::bufferCalls;
+  expect(!saveAutoUpload(0,true)&&host::files[primary]==safe&&host::bufferCalls==heldCalls,"unavailable framebuffer lease performs no SD I/O or heap fallback");released();host::failScratch=false;
+#endif
+  std::cout<<"Config memory host: "<<checks<<" checks passed; full16 KiB arena, scoped lease/heap and exact rule storage verified.\n";
 }

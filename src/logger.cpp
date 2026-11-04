@@ -6,6 +6,7 @@
 #include "version.h"
 #include "ble_ad_summary.h"
 #include "resource_memory.h"
+#include "checked_sd_file.h"
 #include <SD.h>
 #include <ArduinoJson.h>
 #include <esp_heap_caps.h>
@@ -27,7 +28,7 @@ constexpr uint8_t SD_FILE_SLOTS=5;
 #endif
 TaskHandle_t writerTask=nullptr;
 std::atomic<bool> mounted{false}, openSession{false}, busy{false};
-File sessionFile;
+storage::CheckedFile sessionFile;
 uint32_t sequence=0, fileSession=0;
 char buffer[8192];
 size_t used=0;
@@ -56,19 +57,43 @@ void flush() {
     const size_t amount=std::min(used-offset,board::LORA_SHARED_WITH_SD ? size_t(512) : used);
     xSemaphoreTake(busMutex,portMAX_DELAY);
     const size_t written=sessionFile.write(reinterpret_cast<const uint8_t*>(buffer)+offset,amount);
-    if(written!=amount || sessionFile.getWriteError()) { fault(); xSemaphoreGive(busMutex); return; }
+    if(written!=amount || sessionFile.failed()) { fault(); xSemaphoreGive(busMutex); return; }
     xSemaphoreGive(busMutex);
     offset+=amount;
     // Release the shared cap SPI bus between SD blocks for RX FIFO/rearm.
     if(board::LORA_SHARED_WITH_SD) vTaskDelay(1);
   }
   xSemaphoreTake(busMutex,portMAX_DELAY);
-  sessionFile.flush();
-  if(sessionFile.getWriteError()) { fault(); xSemaphoreGive(busMutex); return; }
+  if(!sessionFile.flush()) { fault(); xSemaphoreGive(busMutex); return; }
   xSemaphoreGive(busMutex);
   used=0; bufferedRecords=0;
   const uint32_t elapsed=millis()-started;
   if(elapsed>counters.flush_max_ms) counters.flush_max_ms=elapsed;
+}
+void closeSession() {
+  // close() also checks its final flush/sync and fclose return. A preceding
+  // successful batch flush never makes a failed close a successful save.
+  if(sessionFile && !sessionFile.close()) fault();
+}
+void beginSession(const Observation& event) {
+  flush();
+  xSemaphoreTake(busMutex,portMAX_DELAY);
+  closeSession();
+  fileSession=event.session;sequence=0;used=0;openSession=true;
+  if(mounted) {
+    char path[64];snprintf(path,sizeof(path),"/sessions/LT-%08lx.jsonl",(unsigned long)event.session);
+    // Exclusive create prevents collisions without an extra open/exists
+    // stream. The existing 8 KiB batch makes a second stdio buffer redundant.
+    if(!sessionFile.open(path,storage::OpenMode::Exclusive)) fault();
+  }
+  xSemaphoreGive(busMutex);
+}
+void endSession() {
+  flush();
+  xSemaphoreTake(busMutex,portMAX_DELAY);
+  closeSession();
+  xSemaphoreGive(busMutex);
+  openSession=false;
 }
 void hex(const uint8_t* bytes,size_t size,char* out) {
   constexpr char digits[]="0123456789abcdef";
@@ -225,36 +250,10 @@ void task(void*) {
   for (;;) {
     if (xQueueReceive(queue,&event,pdMS_TO_TICKS(100))==pdTRUE) {
       busy=true;
-      if (event.kind==Kind::Start) {
-        flush();
-        xSemaphoreTake(busMutex,portMAX_DELAY);
-        if(sessionFile) sessionFile.close();
-        fileSession=event.session; sequence=0; used=0; openSession=true;
-        if (mounted) {
-          char path[64]; snprintf(path,sizeof(path),"/sessions/LT-%08lx.jsonl",(unsigned long)event.session);
-          // Never append a new session to an old file, even on a rare ID collision.
-          if (SD.exists(path)) fault();
-          else {
-            sessionFile=SD.open(path,FILE_WRITE);
-            if (!sessionFile) fault();
-#if defined(LORA_TUNNEL_CARDPUTER_ADV)
-            // Keep the 8 KiB writer batch and FAT sector cache; bound only
-            // Arduino's additional per-file stdio buffer (default 4 KiB).
-            else if (!sessionFile.setBufferSize(512)) fault();
-#endif
-          }
-        }
-        xSemaphoreGive(busMutex);
-      }
+      if(event.kind==Kind::Start) beginSession(event);
       if (event.session==fileSession && sessionFile) serialize(event);
       else ++counters.log_drops;
-      if (event.kind==Kind::Stop) {
-        flush();
-        xSemaphoreTake(busMutex,portMAX_DELAY);
-        if(sessionFile) sessionFile.close();
-        xSemaphoreGive(busMutex);
-        openSession=false;
-      }
+      if(event.kind==Kind::Stop) endSession();
       busy=false;
     }
     if (millis()-lastFlush>=2000) {

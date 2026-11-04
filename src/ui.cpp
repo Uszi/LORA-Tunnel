@@ -724,6 +724,10 @@ void navigation(uint8_t events, const Model& model) {
   }
 }
 
+void setConfigScratchGuard(ConfigScratchGuard) {}
+void* acquireConfigScratch(size_t) { return nullptr; }
+void releaseConfigScratch(void*) {}
+
 void tick(const Model& model) {
   if (!splashShown) {
     splash();

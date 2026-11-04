@@ -13,10 +13,14 @@ struct Command { std::string kind,text; int x=0,y=0,w=0,h=0,r=0,color=0,scale=1;
 class LovyanGFX {
 public:
   int width=240,height=135,scale=1,ink=65535;
+  uint8_t* framebuffer=nullptr;
+  unsigned dmaWaits=0,displayWaits=0;
+  void waitDMA(){++dmaWaits;}
+  void waitDisplay(){++displayWaits;}
   std::vector<Command> commands;
   void check(int x,int y,int w,int h) const { assert(x>=0 && y>=0 && w>=0 && h>=0 && x+w<=width && y+h<=height); }
   void fillScreen(int color) { commands.clear();fillRect(0,0,width,height,color); }
-  void fillRect(int x,int y,int w,int h,int color) { check(x,y,w,h);commands.push_back({"rect","",x,y,w,h,0,color,1}); }
+  void fillRect(int x,int y,int w,int h,int color) { check(x,y,w,h);if(framebuffer)for(int row=y;row<y+h;++row)std::memset(framebuffer+row*width+x,((color>>8)&0xe0)|((color>>6)&0x1c)|((color>>3)&3),w);commands.push_back({"rect","",x,y,w,h,0,color,1}); }
   void fillRoundRect(int x,int y,int w,int h,int radius,int color) { check(x,y,w,h);commands.push_back({"round","",x,y,w,h,radius,color,1}); }
   void drawFastHLine(int x,int y,int w,int color) { fillRect(x,y,w,1,color); }
   void setTextSize(int value) { scale=value; }
@@ -32,7 +36,7 @@ class LGFX_Sprite:public LovyanGFX {
 public:
   void setColorDepth(int) {}
   void setPsram(bool) {}
-  void setBuffer(void*,int w,int h,int) {width=w;height=h;}
+  void setBuffer(void* buffer,int w,int h,int) {framebuffer=static_cast<uint8_t*>(buffer);width=w;height=h;}
   void* createSprite(int w,int h) {width=w;height=h;return this;}
   void pushSprite(LovyanGFX* target,int x,int y) {
     for(auto command:commands) { command.x+=x;command.y+=y;target->check(command.x,command.y,command.w,command.h);target->commands.push_back(command); }

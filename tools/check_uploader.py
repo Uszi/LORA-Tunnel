@@ -30,6 +30,7 @@ def extract_body(source: str, signature: str) -> str:
 
 def request_session_body():
     source = (ROOT / "src/main.cpp").read_text(encoding="utf-8")
+    scratch_guard = extract_body(source, "bool configScratchAllowed() {")
     marker = extract_body(source, "__attribute__((noinline)) bool logSessionMarker(Kind kind,CaptureMode mode,uint32_t id) {")
     start = extract_body(source, "void requestSession() {")
     stop = extract_body(source, "  if(stopping) {")
@@ -49,7 +50,7 @@ def request_session_body():
     dispatch = ("void performAlertAction(ui::Action wanted,int field=0) {\n"
                 "  struct {int field;} action{field};\n  switch(wanted) {\n" +
                 "".join(actions) + "  default: break;\n  }\n}\n")
-    return alerts + service + marker + start + mode + dispatch + "void serviceStopMarker() {\n" + stop + "}\n"
+    return scratch_guard + alerts + service + marker + start + mode + dispatch + "void serviceStopMarker() {\n" + stop + "}\n"
 
 
 def check() -> str:
