@@ -16,7 +16,11 @@ def check() -> str:
     if not dependencies:
         raise RuntimeError("Install the pinned PlatformIO dependencies first.")
     source = (ROOT / "src/logger.cpp").read_text(encoding="utf-8")
-    actual = source[source.index("void hex("):source.index("void task(")]
+    start, end = "void hex(", "bool writerQuiescent() {"
+    if source.count(start) != 1 or source.count(end) != 1 or source.index(start) >= source.index(end):
+        raise RuntimeError("Logger serialization boundaries changed.")
+    # Queue and maintenance helpers belong to the separate lifecycle harness.
+    actual = source[source.index(start):source.index(end)]
     fixture = (ROOT / "tests/logger_host/capacity.cpp").read_text(encoding="utf-8")
     if fixture.count("// LOGGER_IMPLEMENTATION") != 1:
         raise RuntimeError("Logger capacity fixture marker is invalid.")
