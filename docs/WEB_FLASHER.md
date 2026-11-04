@@ -4,9 +4,8 @@ The Cardputer ADV + Cap LoRa-1262 public beta is available alongside the preserv
 Heltec 0.3.0-beta.1 installer. See [Cardputer installation and Launcher files](CARDPUTER_ADV.md)
 and [publication/acceptance status](CARDPUTER_RELEASE.md). The hardware selector
 uses a separate manifest for each board because both identify as ESP32-S3.
-Changing hardware clears the confirmation. Pending Cardputer acceptance is
-available only in an explicitly staged localhost preview; public installation
-waits for physical validation. The Heltec-specific notes below remain scoped
+Changing hardware clears the confirmation. Cardputer 0.4.0-beta.1 is published with scoped validation and disclosed
+remaining checks. Unauthorized candidates remain restricted to local previews. The Heltec-specific notes below remain scoped
 to that existing board and release.
 
 **Beta firmware: 0.3.0-beta.1, Heltec Expansion Kit V2 / V4-R8, 863–928 MHz hardware.** Fresh installations leave LoRa off until a region is selected. A fresh GPS fix and a short stopped/closed capture were physically verified on 0.3.0-beta.1. Region saving, software shutdown/Cancel and USER wake have scoped user confirmation; independent persistence, sustained captures and browser flashing remain separate. This published 0.3 image has no uploader or full mesh payload decoder. Read the [user guide](USER_GUIDE.md) and [validation record](VALIDATION.md) before installation.
