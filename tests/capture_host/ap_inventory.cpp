@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include "../host_string.h"
 #include "app_types.h"
 #include "text_sanitize.h"
 using namespace tunnel;
@@ -22,7 +23,6 @@ int esp_wifi_scan_get_ap_record(wifi_ap_record_t* out){if(popped==count || (fail
 void esp_wifi_clear_ap_list(){++clears;}
 void startBle(){++bleStarts;}
 void hostSubmit(CaptureObservation& event){if(submitted>=64)std::abort();delivered[submitted++]=event;}
-size_t strlcpy(char* out,const char* in,size_t capacity){const auto n=std::strlen(in);if(capacity){const auto copy=std::min(n,capacity-1);std::memcpy(out,in,copy);out[copy]=0;}return n;}
 #include "ap_actual.inc"
 void reset(unsigned n){count=n;popped=clears=submitted=bleStarts=failPop=0;failCount=false;counters.ingress_drops=0;counters.radio_errors=0;counters.scan_cycles=0;wifiResultCount=wifiResultNext=0;
  for(unsigned i=0;i<n;++i){auto& ap=source[i];ap=wifi_ap_record_t{};for(unsigned j=0;j<6;++j)ap.bssid[j]=static_cast<uint8_t>(i+j);for(unsigned j=0;j<32;++j)ap.ssid[j]=static_cast<uint8_t>('A'+(i+j)%26);ap.ssid[32]=0;ap.primary=static_cast<uint8_t>(1+i%11);ap.rssi=static_cast<int8_t>(-20-i);ap.authmode=static_cast<wifi_auth_mode_t>(i%10);std::memset(ap.unused,0xa5,sizeof(ap.unused));}}

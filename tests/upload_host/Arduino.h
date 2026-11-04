@@ -10,9 +10,9 @@
 #include <algorithm>
 #include <set>
 #include <stdexcept>
+#include "../host_string.h"
 extern uint32_t hostMillis;
 inline uint32_t millis(){return hostMillis;}
-inline size_t strlcpy(char* out,const char* source,size_t cap){size_t n=std::strlen(source);if(cap){size_t copy=std::min(n,cap-1);std::memcpy(out,source,copy);out[copy]=0;}return n;}
 using portMUX_TYPE=int;constexpr int portMUX_INITIALIZER_UNLOCKED=0,portMAX_DELAY=0,pdPASS=1;
 inline void portENTER_CRITICAL(portMUX_TYPE*){}
 inline void portEXIT_CRITICAL(portMUX_TYPE*){}
