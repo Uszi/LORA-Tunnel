@@ -60,6 +60,17 @@ def check() -> str:
     with tempfile.TemporaryDirectory(prefix="lora-upload-host-") as temporary:
         directory = Path(temporary)
         (directory / "request_session_actual.inc").write_text(request_session_body(), encoding="utf-8")
+        logger = (ROOT / "src/logger.cpp").read_text(encoding="utf-8")
+        maintenance = "".join(extract_body(logger, signature) for signature in [
+            "bool writerQuiescent() {", "void serviceIdleMaintenance() {", "bool loggerIdle() {",
+            "bool loggerRequestMaintenance(void (*run)(void*),void* context,void (*complete)()) {",
+            "bool loggerMaintenanceQuiescent() {", "bool logObservation(const Observation& event) {"])
+        (directory / "logger_maintenance_actual.inc").write_text(maintenance, encoding="utf-8")
+        scanners = (ROOT / "src/scanners.cpp").read_text(encoding="utf-8")
+        transitions = "".join(extract_body(scanners, signature) for signature in [
+            "bool armBleTransition(unsigned phase) {", "void disarmBleTransition() {",
+            "bool scannersPauseBleForUpload() {", "bool scannersRestoreBleAfterUpload() {"])
+        (directory / "ble_transition_actual.inc").write_text(transitions, encoding="utf-8")
         cxx = compiler()
         base = [cxx, "-std=c++14", "-O1", "-Wall", "-Wextra", "-DARDUINOJSON_ENABLE_ARDUINO_STREAM=0",
                 "-DARDUINOJSON_ENABLE_ARDUINO_STRING=0", "-DARDUINOJSON_ENABLE_ARDUINO_PRINT=0",
@@ -74,9 +85,12 @@ def check() -> str:
         for name, source, flags in [
                 ("Cardputer", "uploader.cpp", ["-DLORA_TUNNEL_CARDPUTER_ADV=1"]),
                 ("Heltec", "uploader.cpp", []),
-                ("Session", "request_session.cpp", [])]:
+                ("Session", "request_session.cpp", []),
+                ("BLE lifecycle", "ble_lifecycle.cpp", ["-DLORA_TUNNEL_CARDPUTER_ADV=1"])]:
             binary = directory / (name + (".exe" if os.name == "nt" else ""))
             args = base + flags + [str(ROOT / "tests/upload_host" / source)]
+            if source == "uploader.cpp":
+                args += ["-DLORA_TUNNEL_STORAGE_TEST", str(ROOT / "src/checked_sd_file.cpp")]
             if name == "Session":
                 args += [str(ROOT / "src/alert_tones.cpp")]
             args += ["-o", str(binary)]

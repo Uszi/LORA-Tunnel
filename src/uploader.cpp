@@ -6,6 +6,7 @@
 #include "config.h"
 #include "app_types.h"
 #include "logger.h"
+#include "checked_sd_file.h"
 #include "board_config.h"
 #include "version.h"
 #include <SD.h>
@@ -40,6 +41,17 @@ char statusText[64]="Uploads off; configure keys and services";
 struct Work { Config settings; unsigned mask=0,manual=0,pollMask=0; uint32_t epoch=1;
   bool pollOnly=false,resultReported=false,alreadyProcessed=false,skippedFiles=false; };
 struct StorageLock {StorageLock(){xSemaphoreTake(busMutex,portMAX_DELAY);}~StorageLock(){xSemaphoreGive(busMutex);}};
+// Each writer owns one bounded stdio buffer, with no hidden allocation. Explicit
+// checked close decides success; RAII only guarantees locked cleanup on errors.
+struct UploadWriter {
+  uint8_t buffer[512];
+  storage::CheckedFile file;
+  size_t written=0;
+  ~UploadWriter(){StorageLock lock;file.close();}
+  explicit operator bool() const {return bool(file);}
+  size_t size() const {return written;}
+};
+void closeFile(UploadWriter& output){StorageLock lock;output.file.close();}
 void status(const char* text){portENTER_CRITICAL(&statusMux);strlcpy(statusText,text,sizeof(statusText));portEXIT_CRITICAL(&statusMux);}
 void serviceStatus(int service,const char* text){char line[64];snprintf(line,sizeof(line),"%s: %s",names[service],text);status(line);}
 void workStatus(Work& work,const char* text){work.resultReported=true;status(text);}
@@ -144,10 +156,17 @@ bool saveCheckpoint(const char* directory,int service,int chunk,const char* hash
   doc["epoch"]=cp.epoch;
   char path[144];checkpointPath(path,directory,service,chunk,(cp.generation+1)&1U);
   bool ok;
-  {StorageLock lock;File file=openFile(path,FILE_WRITE);if(!file)return false;
-    const size_t expected=measureJson(doc);ok=serializeJson(doc,file)==expected;file.flush();ok=ok&&!file.getWriteError();file.close();}
+  UploadWriter output;
+  {StorageLock lock;
+    if(!output.file.open(path,storage::OpenMode::Truncate,output.buffer,sizeof(output.buffer)))return false;
+    const size_t expected=measureJson(doc);ok=serializeJson(doc,output.file)==expected;
+    // Always close, even after a short write. No readback or network request may
+    // treat a failed fflush/fsync/fclose as a committed checkpoint.
+    ok=output.file.close()&&ok;
+  }
   Checkpoint verified;ok=ok&&loadCheckpoint(directory,service,chunk,hash,bytes,verified)&&verified.generation==cp.generation+1&&
-    !strcmp(verified.state,cp.state)&&!strcmp(verified.job,cp.job)&&verified.attempts==cp.attempts;
+    !strcmp(verified.state,cp.state)&&!strcmp(verified.job,cp.job)&&verified.attempts==cp.attempts&&
+    verified.boot==cp.boot&&verified.retryAt==cp.retryAt&&verified.epoch==cp.epoch;
   if(ok)cp=verified;return ok;
 }
 bool setState(const char* directory,int service,int chunk,const char* hash,size_t bytes,Checkpoint& cp,const char* state) {
@@ -281,14 +300,20 @@ bool processChunk(Work& work,const char* directory,const char* hash,size_t sourc
   }
   return true;
 }
-bool writeCsv(File& file,const char* data,size_t size){StorageLock lock;return file.write(reinterpret_cast<const uint8_t*>(data),size)==size&&!file.getWriteError();}
-bool stageHeader(File& file) {
-  {StorageLock lock;if(SD.exists(staging))SD.remove(staging);file=openFile(staging,FILE_WRITE);}
-  if(!file)return false;char first[240];
+bool writeCsv(UploadWriter& output,const char* data,size_t size){
+  StorageLock lock;
+  const size_t written=output.file.write(reinterpret_cast<const uint8_t*>(data),size);
+  output.written+=written;
+  return written==size&&!output.file.failed();
+}
+bool stageHeader(UploadWriter& file) {
+  {StorageLock lock;file.written=0;
+    if(!file.file.open(staging,storage::OpenMode::Truncate,file.buffer,sizeof(file.buffer)))return false;}
+  char first[240];
   snprintf(first,sizeof(first),"WigleWifi-1.6,appRelease=LORA-Tunnel-%s,model=%s,release=%s,device=LORA-Tunnel,display=keyboard,board=%s,brand=Valleytech\n",TUNNEL_VERSION,board::TARGET_ID,TUNNEL_VERSION,board::TARGET_ID);
   return writeCsv(file,first,strlen(first))&&writeCsv(file,upload::CsvColumns,strlen(upload::CsvColumns));
 }
-bool finishCsv(File& file){StorageLock lock;if(!file)return false;file.flush();const bool ok=!file.getWriteError();file.close();return ok;}
+bool finishCsv(UploadWriter& output){StorageLock lock;return output && output.file.close();}
 bool checkpointChunk(const char* name,unsigned& chunk,unsigned& slot) {
   if(strncmp(name,"2-",2))return false;
   const char* p=name+2;if(*p<'0'||*p>'9'||(*p=='0'&&p[1]>='0'&&p[1]<='9'))return false;
@@ -333,7 +358,7 @@ void processSession(Work& work,const char* path,char* line,char* row,DynamicJson
     Checkpoint budget;loadCheckpoint(directory,service,-1,hash,bytes,budget);budget.boot=bootId;budget.attempts=0;budget.retryAt=0;budget.epoch=work.epoch;
     if(!saveCheckpoint(directory,service,-1,hash,bytes,budget)){workStatus(work,"SD checkpoint failed");return;}
   }
-  File source,out;{StorageLock lock;source=openFile(path,FILE_READ);}if(!source){workStatus(work,"Cannot read completed session on SD");return;}
+  File source;UploadWriter out;{StorageLock lock;source=openFile(path,FILE_READ);}if(!source){workStatus(work,"Cannot read completed session on SD");return;}
   if(!stageHeader(out)){closeFile(source);closeFile(out);workStatus(work,"Cannot stage upload CSV on SD");return;}
   unsigned chunk=0,rows=0;size_t chunkBytes;{StorageLock lock;chunkBytes=out.size();}
   bool ok=true;
@@ -366,19 +391,12 @@ void processSession(Work& work,const char* path,char* line,char* row,DynamicJson
   }
   else {closeFile(out);if(!stopped())workStatus(work,"SD staging error; original session kept");}
 }
+#if defined(LORA_TUNNEL_CARDPUTER_ADV)
+std::atomic<bool> workerFinished{false};
+#endif
 void worker(void* argument) {
   Work* work=static_cast<Work*>(argument);
-  bool radioReady=true;
-#if defined(LORA_TUNNEL_CARDPUTER_ADV)
-  // Release BLE before the CSV/JSON buffers and TLS allocations. Busy already
-  // owns the idle radio interval, so Start can only request cancellation.
-  radioReady=false;
-  if(!stopped()) {
-    status("Releasing BLE memory for upload");
-    radioReady=scannersPauseBleForUpload();
-    if(!radioReady) status("BLE pause failed; upload deferred");
-  }
-#endif
+  const bool radioReady=true; // Cardputer's coordinator released BLE first.
   char* line=nullptr;char* row=nullptr;DynamicJsonDocument* doc=nullptr;
   bool ok=radioReady&&!stopped();
   if(ok) {
@@ -416,15 +434,12 @@ void worker(void* argument) {
   if(stopped())status("Upload cancelled; local logs retained");
   free(line);free(row);delete doc;memset(&work->settings,0,sizeof(work->settings));delete work;
 #if defined(LORA_TUNNEL_CARDPUTER_ADV)
-  if(radioReady) {
-    // All HTTP handles, files and large buffers are gone before restoring BLE.
-    // Keep busy set through restoration, including cancellation and failures.
-    char completion[sizeof(statusText)];uploaderStatus(completion,sizeof(completion));
-    status("Restoring BLE scanner");
-    if(scannersRestoreBleAfterUpload())status(completion);
-    else status("BLE restore failed; restart before capture");
-  }
-#endif
+  // The existing writer is pinned to this same core. Park after every resource
+  // is gone, so it can delete a non-running task and reclaim this entire stack
+  // synchronously before restoring BLE. Never self-delete or release busy here.
+  workerFinished=true;
+  for(;;) vTaskSuspend(nullptr);
+#else
   // A cancellation can arrive while a checkpoint write is in progress, before
   // that path re-arms a retry. After all scheduling and restoration have ended,
   // clear any such retry while busy still prevents a new worker/reset. This
@@ -432,7 +447,43 @@ void worker(void* argument) {
   // clears the state itself, with no worker scheduling left to race against it.
   if(cancelled.load()) { retryMask=jobPollMask=0;nextRetry=nextJobPoll=0; }
   busy=false;vTaskDelete(nullptr);
+#endif
 }
+#if defined(LORA_TUNNEL_CARDPUTER_ADV)
+void finishMaintenance() {
+  // No worker remains that can re-arm work after cancellation, including a
+  // cancellation that arrived during the final checkpoint or BLE restore.
+  if(cancelled.load()) {retryMask=jobPollMask=0;nextRetry=nextJobPoll=0;}
+  busy=false;
+}
+void uploadMaintenance(void* argument) {
+  Work* work=static_cast<Work*>(argument);
+  bool paused=false;
+  if(!stopped()) {
+    status("Releasing BLE memory for upload");
+    paused=scannersPauseBleForUpload();
+    if(!paused) status("BLE pause failed; upload deferred");
+  }
+  if(paused && !stopped()) {
+    TaskHandle_t task=nullptr;workerFinished=false;
+    if(xTaskCreatePinnedToCore(worker,"upload",16384,work,1,&task,0)==pdPASS) {
+      // Worker and coordinator share core 0. Waiting for the explicit suspended
+      // state makes vTaskDelete synchronous, not an idle-task cleanup request.
+      work=nullptr;
+      while(!workerFinished.load() || eTaskGetState(task)!=eSuspended) vTaskDelay(1);
+      vTaskDelete(task);
+    } else status("Upload worker unavailable");
+  }
+  if(work) {memset(&work->settings,0,sizeof(work->settings));delete work;}
+  if(stopped()) status("Upload cancelled; local logs retained");
+  if(paused) {
+    char completion[sizeof(statusText)];uploaderStatus(completion,sizeof(completion));
+    status("Restoring BLE scanner");
+    if(scannersRestoreBleAfterUpload())status(completion);
+    else status("BLE restore failed; restart before capture");
+  }
+}
+#endif
 }
 bool uploaderBegin(){bootId=esp_random();initialPending=true;Preferences prefs;if(prefs.begin("lt-upload",true)){settingsEpoch=prefs.getUInt("epoch",1);prefs.end();}return true;}
 bool uploaderBusy(){return busy.load();}
@@ -472,6 +523,12 @@ void uploaderTick(bool idle,bool allowAutomatic,bool allowJobPolling) {
   if(!mask||!storageReady())return;
   Work* work=new(std::nothrow) Work;if(!work){status("Upload task allocation failed");return;}
   work->settings=config;work->mask=mask;work->manual=manual;work->epoch=settingsEpoch;work->pollOnly=pollOnly;work->pollMask=pollMask;cancelled=false;busy=true;
+#if defined(LORA_TUNNEL_CARDPUTER_ADV)
+  if(!loggerRequestMaintenance(uploadMaintenance,work,finishMaintenance)) {
+    busy=false;memset(&work->settings,0,sizeof(work->settings));delete work;status("Upload maintenance unavailable");
+  }
+#else
   if(xTaskCreatePinnedToCore(worker,"upload",16384,work,1,nullptr,0)!=pdPASS){busy=false;memset(&work->settings,0,sizeof(work->settings));delete work;status("Upload worker unavailable");}
+#endif
 }
 }

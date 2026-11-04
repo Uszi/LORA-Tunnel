@@ -14,6 +14,10 @@ void uploadHostFree(void*);
 uint32_t hostMillis=1000;
 namespace host {
 void(*task)(void*)=nullptr;void* taskArg=nullptr;
+void(*workerTask)(void*)=nullptr;void* workerArg=nullptr;
+TaskHandle_t currentTask=reinterpret_cast<void*>(1);
+bool parked=false,maintenanceOK=true,deferPark=false,parkDeferred=false;unsigned workerStack=0,created=0,deleted=0,parkWaits=0;
+void(*afterPark)()=nullptr;void(*afterRestore)()=nullptr;void(*actualComplete)()=nullptr;
 bool createTask=true,bleReady=true,pauseOK=true,restoreOK=true,disconnected=true;
 unsigned pauses=0,restores=0,activeHttp=0,openFiles=0,allocation=0,failAllocation=0;
 unsigned regularFiles=0,peakRegularFiles=0,bufferCalls=0,failBufferCall=0,checkpointCancels=0;
@@ -22,6 +26,87 @@ std::set<void*> buffers;
 std::map<std::string,std::string> files;std::vector<std::string> directories;
 std::string failWritePath;bool connected=true;unsigned associations=0;uint32_t epoch=1;
 std::vector<HttpScript> scripts;std::vector<HttpCall> calls;void(*afterWrite)()=nullptr;
+}
+#include "checked_backend.h"
+namespace writerHost {
+int queue=1;unsigned queued=0;
+TaskHandle_t writerTask=reinterpret_cast<void*>(2);
+std::atomic<bool> openSession{false},busy{false},capturing{false};
+std::atomic<unsigned> maintenanceState{0};
+void (*maintenanceRun)(void*)=nullptr;void* maintenanceContext=nullptr;void (*maintenanceComplete)()=nullptr;
+unsigned uxQueueMessagesWaiting(int){return queued;}
+constexpr int pdTRUE=1;
+enum class Kind{Wifi,Ble,LoRa,Start,Stop};struct Observation{Kind kind;};
+struct {std::atomic<unsigned> log_drops{0};} counters;
+int xQueueSend(int,const Observation*,int){++queued;return pdTRUE;}
+#include "logger_maintenance_actual.inc"
+}
+void writerEntry(void*) {
+  const auto previous=host::currentTask;host::currentTask=writerHost::writerTask;
+  writerHost::serviceIdleMaintenance();host::currentTask=previous;
+}
+void maintenanceCompleted() {
+  if(!writerHost::loggerIdle()||writerHost::loggerMaintenanceQuiescent()||!tunnel::uploaderBusy()||host::workerStack)
+    throw std::runtime_error("completion must release logger maintenance before uploader ownership");
+  host::actualComplete();
+  if(tunnel::uploaderBusy())throw std::runtime_error("completion did not release upload ownership");
+}
+namespace tunnel {
+bool loggerRequestMaintenance(void (*run)(void*),void* context,void (*complete)()) {
+  host::actualComplete=complete;
+  const bool accepted=host::maintenanceOK&&writerHost::loggerRequestMaintenance(run,context,maintenanceCompleted);
+  if(accepted){host::task=writerEntry;host::taskArg=nullptr;}
+  return accepted;
+}
+bool loggerMaintenanceQuiescent(){return writerHost::loggerMaintenanceQuiescent();}
+bool loggerIdle(){return writerHost::loggerIdle();}
+}
+TaskHandle_t xTaskGetCurrentTaskHandle(){return host::currentTask;}
+eTaskState eTaskGetState(TaskHandle_t task){if(task!=reinterpret_cast<void*>(3))throw std::runtime_error("invalid worker handle");return host::parked?eSuspended:eReady;}
+void vTaskDelay(uint32_t n){
+  hostMillis+=n;
+  if(host::parkDeferred) {
+    if(host::currentTask!=writerHost::writerTask||!tunnel::uploaderBusy()||host::workerStack!=16384||host::bleReady)
+      throw std::runtime_error("completion publication released resources before suspension");
+    ++host::parkWaits;host::parked=true;host::parkDeferred=false;
+  }
+  if(host::workerTask) {
+    auto fn=host::workerTask;auto arg=host::workerArg;host::workerTask=nullptr;
+    const auto previous=host::currentTask;host::currentTask=reinterpret_cast<void*>(3);
+    try{fn(arg);}catch(const HostTaskSuspended&){}host::currentTask=previous;
+    if(host::afterPark){auto callback=host::afterPark;host::afterPark=nullptr;callback();}
+  }
+}
+void vTaskSuspend(void* task){
+  if(task||host::currentTask!=reinterpret_cast<void*>(3)||!tunnel::uploaderBusy()||!host::buffers.empty()||host::activeHttp||host::openFiles)
+    throw std::runtime_error("worker parked before cleanup or ownership lost");
+  if(host::deferPark){host::deferPark=false;host::parkDeferred=true;}
+  else host::parked=true;
+  throw HostTaskSuspended{};
+}
+void vTaskDelete(void* task){
+  if(!task) {
+#if defined(LORA_TUNNEL_CARDPUTER_ADV)
+    // A real self-delete retains the stack until the idle task runs; a fixture
+    // must never pretend it freed memory before the BLE restore boundary.
+    if(host::workerStack)throw std::runtime_error("Card worker self-delete leaves deferred stack reclamation");
+#endif
+    throw HostTaskFinished{};
+  }
+  if(task!=reinterpret_cast<void*>(3)||!host::parked||host::currentTask!=writerHost::writerTask||!host::workerStack||host::bleReady||!tunnel::uploaderBusy())
+    throw std::runtime_error("worker deletion must precede BLE restore on idle writer core");
+  host::workerStack=0;++host::deleted;host::parked=false;
+}
+int xTaskCreatePinnedToCore(void(*fn)(void*),const char*,int stack,void* arg,int,TaskHandle_t* handle,int core){
+#if defined(LORA_TUNNEL_CARDPUTER_ADV)
+  if(host::currentTask!=writerHost::writerTask||host::bleReady||stack!=16384||core!=0||!handle||!tunnel::uploaderBusy()||tunnel::loggerIdle())
+    throw std::runtime_error("upload stack allocated outside BLE-free writer-owned interval");
+  if(!host::createTask)return 0;
+  host::workerTask=fn;host::workerArg=arg;host::workerStack=stack;host::parked=false;*handle=reinterpret_cast<void*>(3);++host::created;
+#else
+  (void)stack;(void)handle;(void)core;if(!host::createTask)return 0;host::task=fn;host::taskArg=arg;
+#endif
+  return pdPASS;
 }
 void* uploadHostMalloc(size_t size){
 #if defined(LORA_TUNNEL_CARDPUTER_ADV)
@@ -33,15 +118,18 @@ void* uploadHostMalloc(size_t size){
 void uploadHostFree(void* p){host::buffers.erase(p);std::free(p);}
 namespace tunnel {
 bool scannersPauseBleForUpload(){
-  if(!uploaderBusy())throw std::runtime_error("BLE released without upload ownership");
+  if(!uploaderBusy()||!loggerMaintenanceQuiescent()||loggerIdle()||host::workerStack)
+    throw std::runtime_error("BLE released without exclusive idle writer or before stack release");
   ++host::pauses;host::bleReady=false;
   if(host::afterPause){auto fn=host::afterPause;host::afterPause=nullptr;fn();}
   return host::pauseOK;
 }
 bool scannersRestoreBleAfterUpload(){
-  if(!uploaderBusy()||host::activeHttp||host::openFiles||!host::buffers.empty()||!host::disconnected)
+  if(!uploaderBusy()||!loggerMaintenanceQuiescent()||loggerIdle()||host::workerStack||host::activeHttp||host::openFiles||!host::buffers.empty()||!host::disconnected)
     throw std::runtime_error("BLE restored before worker cleanup or after ownership release");
-  ++host::restores;host::bleReady=host::restoreOK;return host::restoreOK;
+  ++host::restores;host::bleReady=host::restoreOK;
+  if(host::afterRestore){auto callback=host::afterRestore;host::afterRestore=nullptr;callback();}
+  return host::restoreOK;
 }
 bool scannersCaptureReady(){return host::bleReady;}
 }
@@ -60,8 +148,14 @@ std::string session(unsigned rows=1,const char* mode="wardriver",bool closed=tru
 }
 void reset(int service=0) {
   using namespace tunnel;
+  host::resetCheckedWrites();
   host::files.clear();host::directories={"/sessions"};host::failWritePath.clear();host::scripts.clear();host::calls.clear();host::connected=true;host::associations=0;host::afterWrite=nullptr;host::epoch=1;hostMillis=1000;
   if(!host::buffers.empty()||host::activeHttp||host::openFiles)throw std::runtime_error("Previous worker leaked ownership/resources");
+  if(host::workerStack||writerHost::maintenanceState)throw std::runtime_error("Previous task/maintenance leaked");
+  host::created=host::deleted=host::parkWaits=0;host::maintenanceOK=true;host::workerTask=nullptr;
+  host::parked=host::deferPark=host::parkDeferred=false;
+  host::afterPark=host::afterRestore=nullptr;host::currentTask=reinterpret_cast<void*>(1);
+  writerHost::queue=1;writerHost::queued=0;writerHost::counters.log_drops=0;writerHost::openSession=writerHost::busy=writerHost::capturing=false;
   host::createTask=host::bleReady=host::pauseOK=host::restoreOK=host::disconnected=true;
   host::peakRegularFiles=host::bufferCalls=host::failBufferCall=host::checkpointCancels=0;host::fileHooks().afterFlush=nullptr;host::fileHooks().dynamicDirectory=false;
   host::pauses=host::restores=host::allocation=host::failAllocation=0;host::afterPause=nullptr;
@@ -76,6 +170,8 @@ void task(){
 #endif
   if(host::task){auto fn=host::task;auto arg=host::taskArg;host::task=nullptr;try{fn(arg);}catch(const HostTaskFinished&){} }
   expect(!tunnel::uploaderBusy(),"worker releases busy state");
+  expect(tunnel::loggerIdle()&&!tunnel::loggerMaintenanceQuiescent(),"idle only after maintenance completion; owner context does not escape");
+  expect(host::workerStack==0&&host::created==host::deleted,"all upload task stacks reclaimed before ownership ends");
   expect(host::buffers.empty()&&host::activeHttp==0&&host::openFiles==0,"all worker buffers, HTTP and SD files released");
   expect(host::regularFiles==0&&host::peakRegularFiles<=2,"all uploader paths fit two regular SD file slots");
 #if defined(LORA_TUNNEL_CARDPUTER_ADV)
@@ -110,6 +206,7 @@ void replaceJobState(const char* state) {
 }
 int main() {
   using namespace tunnel;
+  storage::setOperationsForTest(&host::checkedOperations);
   reset();uploaderTick(false);expect(host::task==nullptr && host::associations==0,"capture never starts network");uploaderTick(true,false);expect(host::task==nullptr,"editing suppresses automatic network");
   manual(0);expect(host::calls.size()==1,"manual upload works while Uploads page blocks automatic");
   const auto& call=host::calls.front();expect(call.config.crt_bundle_attach!=nullptr && call.config.disable_auto_redirect,"verified TLS and redirects disabled");expect(call.config.timeout_ms==4000,"socket timeout bounded");
@@ -142,6 +239,51 @@ int main() {
   reset();host::scripts.push_back({0,"",7,true,false});automatic();for(auto& item:host::files)if(item.first.find("/0-0.")!=std::string::npos)item.second="{partial";restart();automatic();expect(host::calls.size()==1,"corrupt existing checkpoint fails closed");
 
   reset();host::failWritePath=".json";automatic();expect(host::calls.empty(),"SD checkpoint failure prevents network send");
+
+  // The real CheckedFile implementation receives failing C/VFS return values.
+  // An immediately readable file is not enough: each pre-POST file must have
+  // completed write, fflush, fsync and fclose successfully before transport.
+  for(auto failure:{host::WriteFault::ShortWrite,host::WriteFault::FullWriteError,host::WriteFault::Flush,host::WriteFault::Sync,host::WriteFault::Close}) {
+    for(const char* phase:{"staging","sending"}) {
+      reset();const auto originalFile=host::files[sourcePath];host::writeFault=failure;host::faultState=phase;automatic();
+      expect(host::writeFaults>0,"targeted staging/sending finalization fault was injected");
+      expect(host::calls.empty()&&host::finalizedPosts==0,"failed staging or sending checkpoint prevents every POST");
+      expect(host::files[sourcePath]==originalFile&&host::checkedHandles.empty()&&!host::busHeld,"write failure retains original and releases all handles/locks");
+      expect(std::string(statusText).find("accepted; original log retained")==std::string::npos,"pre-send failure cannot claim accepted upload");
+    }
+    reset();host::writeFault=failure;host::faultState="accepted";automatic();
+    expect(host::writeFaults>0&&host::calls.size()==1&&host::finalizedPosts==1,"accepted checkpoint fails only after finalized staging/sending and server receipt");
+    expect(std::string(statusText)=="Receipt received; SD checkpoint failed","failed accepted persistence cannot claim completed success");
+    expect(nextRetry==0&&retryMask==0&&nextJobPoll==0&&jobPollMask==0,"failed receipt checkpoint never schedules an implicit resend");
+    bool committedAccepted=false;for(const auto& file:host::finalizedFiles)if(file.second.find("\"state\":\"accepted\"")!=std::string::npos)committedAccepted=true;
+    expect(!committedAccepted,"failed receipt close cannot become a finalized accepted checkpoint");
+
+    reset(2);host::writeFault=failure;host::faultState="job";host::scripts.push_back({202,"{\"job_id\":42}",7,false,false});automatic();
+    expect(host::writeFaults>0&&host::calls.size()==1,"pending server job checkpoint fault injected after POST");
+    expect(std::string(statusText)=="Job accepted; SD checkpoint failed"&&nextJobPoll==0&&jobPollMask==0,"failed job persistence never schedules polling or claims final acceptance");
+
+    reset();host::writeFault=failure;host::faultState="uncertain";host::afterWrite=[](){uploaderCancel();};automatic();
+    expect(host::writeFaults>0&&host::calls.size()==1,"cancelled POST result checkpoint failure injected");
+    expect(nextRetry==0&&retryMask==0&&nextJobPoll==0&&jobPollMask==0&&!uploaderBusy()&&loggerIdle(),"failed cancellation checkpoint still finishes cleanup and suppresses rescheduling");
+    expect(std::string(statusText)=="Upload cancelled; local logs retained","cancelled finalization failure never reports accepted upload");
+
+    reset();Checkpoint cp;cp.state[0]='n';cp.boot=bootId;cp.attempts=2;cp.retryAt=12345;cp.epoch=4;
+    expect(saveCheckpoint("/fixture",0,0,"hash",12,cp)&&cp.generation==1,"prepare committed checkpoint generation");
+    const auto generation=cp.generation;strlcpy(cp.state,"accepted",sizeof(cp.state));host::writeFault=failure;host::faultState="accepted";
+    expect(!saveCheckpoint("/fixture",0,0,"hash",12,cp)&&cp.generation==generation,"failed checkpoint finalization never advances in-memory generation");
+  }
+
+  for(const char* field:{"boot","retry_at","epoch"}) {
+    reset();Checkpoint cp;cp.boot=bootId;cp.retryAt=12345;cp.epoch=4;
+    static const char* altered=nullptr;altered=field;
+    host::fileHooks().afterFlush=[](const std::string& path){
+      StaticJsonDocument<1024> changed;if(deserializeJson(changed,host::files[path]))throw std::runtime_error("metadata readback fixture did not parse");
+      changed[altered]=changed[altered].as<uint32_t>()+1;host::files[path].clear();serializeJson(changed,host::files[path]);host::fileHooks().afterFlush=nullptr;
+    };
+    expect(!saveCheckpoint("/fixture",0,0,"hash",12,cp)&&cp.generation==0,"readback rejects altered boot, retry deadline or credential epoch");
+    expect(host::checkedHandles.empty()&&!host::busHeld,"metadata verification failure closes writer before readback");
+  }
+
   reset();host::afterWrite=[](){tunnel::uploaderCancel();};automatic();expect(metadataHas("\"state\":\"uncertain\""),"cancellation after send preserves ambiguity");expect(nextRetry==0&&retryMask==0&&nextJobPoll==0&&jobPollMask==0,"cancel does not schedule itself again");
 
   reset();expect(uploaderRequest(0),"manual request starts while automatic scheduling is hidden");
@@ -175,9 +317,33 @@ int main() {
   reset();host::connected=false;automatic();expect(host::calls.empty(),"association failure sends no HTTP");
   reset();host::failAllocation=1;automatic();expect(host::calls.empty(),"line allocation failure sends no HTTP");
   reset();host::failAllocation=2;automatic();expect(host::calls.empty(),"row allocation failure sends no HTTP");
-  reset();host::createTask=false;uploaderTick(true,true);expect(!uploaderBusy()&&!host::task&&host::calls.empty()&&host::pauses==0,"task creation failure never releases BLE or sends HTTP");
+  reset();host::createTask=false;uploaderTick(true,true);
+#if defined(LORA_TUNNEL_CARDPUTER_ADV)
+  expect(uploaderBusy()&&!loggerIdle()&&host::pauses==0&&host::workerStack==0,"maintenance reserves idle without allocating upload stack");task();
+  expect(host::pauses==1&&host::restores==1&&host::calls.empty(),"task creation failure restores BLE without network");
+  reset();host::maintenanceOK=false;uploaderTick(true,true);expect(!uploaderBusy()&&!host::task&&host::pauses==0,"maintenance request failure preserves BLE and frees upload ownership");
+#else
+  expect(!uploaderBusy()&&!host::task&&host::calls.empty()&&host::pauses==0,"task creation failure never releases BLE or sends HTTP");
+#endif
   reset();uploaderTick(true,true);uploaderCancel();task();expect(host::pauses==0&&host::calls.empty(),"cancel before worker entry never starts BLE transition or HTTP");
 #if defined(LORA_TUNNEL_CARDPUTER_ADV)
+  reset();host::deferPark=true;automatic();expect(host::parkWaits==1&&host::deleted==1&&host::restores==1,"published completion waits for suspension before reclaim and restore");
+  reset();host::afterPark=[](){expect(uploaderBusy()&&!loggerIdle()&&host::workerStack==16384,"parked completion still owns task stack and gates capture");uploaderCancel();};automatic();
+  expect(nextRetry==0&&nextJobPoll==0&&host::deleted==1&&host::restores==1,"cancel after worker cleanup still deletes stack and restores BLE");
+  reset();host::afterRestore=[](){expect(uploaderBusy()&&!loggerIdle()&&host::workerStack==0,"restore retains uploader/maintenance ownership with upload stack absent");uploaderCancel();};automatic();
+  expect(nextRetry==0&&nextJobPoll==0&&!uploaderBusy()&&loggerIdle(),"cancel during restore cannot rearm work or retain busy");
+  reset();uploaderTick(true,true);
+  expect(uploaderBusy()&&!loggerIdle()&&!loggerMaintenanceQuiescent()&&host::workerStack==0,"pending maintenance blocks main capture/config without granting owner context");
+  expect(!writerHost::loggerRequestMaintenance([](void*){},nullptr,[](){}),"second pending maintenance rejected");
+  for(auto kind:{writerHost::Kind::Wifi,writerHost::Kind::Ble,writerHost::Kind::LoRa,writerHost::Kind::Start,writerHost::Kind::Stop})
+    expect(!writerHost::logObservation({kind}),"maintenance rejects all new observations and markers");
+  expect(writerHost::counters.log_drops==3&&writerHost::queued==0,"refused real observations count drops; retryable Start/Stop do not");task();
+  for(unsigned reason=0;reason<5;++reason) {
+    reset();writerHost::capturing=reason==0;writerHost::busy=reason==1;writerHost::openSession=reason==2;writerHost::queued=reason==3?1:0;if(reason==4)writerHost::queue=0;
+    expect(!writerHost::loggerRequestMaintenance([](void*){},nullptr,[](){}),"maintenance rejects capture, writer busy, open file, queued work or absent writer");
+    expect(writerHost::maintenanceState==0&&!loggerMaintenanceQuiescent(),"refused maintenance never claims ownership");
+  }
+  reset();expect(!writerHost::loggerRequestMaintenance(nullptr,nullptr,[](){})&&!writerHost::loggerRequestMaintenance([](void*){},nullptr,nullptr),"invalid maintenance callbacks rejected");
   reset();host::failBufferCall=1;automatic();expect(host::calls.empty()&&host::regularFiles==0,"stdio buffer failure closes file and prevents sending its contents");
   reset();automatic();const auto opens=host::bufferCalls;
   for(unsigned fail=2;fail<=opens;++fail){reset();host::failBufferCall=fail;automatic();expect(host::regularFiles==0,"every stdio buffer failure releases SD file slots");}

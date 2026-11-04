@@ -279,7 +279,7 @@ bool initializeBle() {
 #if defined(LORA_TUNNEL_CARDPUTER_ADV)
 bool armBleTransition(unsigned phase) {
   // Called only before opening upload files or after all upload cleanup.
-  if(capturing.load() || !loggerIdle() || quietLatched.load()) return false;
+  if(capturing.load() || (!loggerIdle() && !loggerMaintenanceQuiescent()) || quietLatched.load()) return false;
   if(!bleTransitionTimer) {
     esp_timer_create_args_t args{};
     args.callback=[](void*) {
@@ -670,7 +670,7 @@ bool scannersCaptureReady() {
 }
 bool scannersPauseBleForUpload() {
 #if defined(LORA_TUNNEL_CARDPUTER_ADV)
-  if(!bleCaptureReady.load() || capturing.load() || !loggerIdle() || quietLatched.load()) return false;
+  if(!bleCaptureReady.load() || capturing.load() || !loggerMaintenanceQuiescent() || quietLatched.load()) return false;
   if(!armBleTransition(1)) { initStage="ble_pause_timer_failed"; ++counters.radio_errors; return false; }
   initStage="ble_pause"; bleCaptureReady=false;
   if(bleScanner) bleScanner->stop();
@@ -688,6 +688,7 @@ bool scannersPauseBleForUpload() {
 }
 bool scannersRestoreBleAfterUpload() {
 #if defined(LORA_TUNNEL_CARDPUTER_ADV)
+  if(!loggerMaintenanceQuiescent()) return false;
   if(!blePausedForUpload.exchange(false)) return bleCaptureReady.load();
   if(!armBleTransition(2)) { initStage="ble_restore_timer_failed"; ++counters.radio_errors; return false; }
   const bool restored=initializeBle() &&

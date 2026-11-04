@@ -16,12 +16,17 @@ inline size_t strlcpy(char* out,const char* source,size_t cap){size_t n=std::str
 using portMUX_TYPE=int;constexpr int portMUX_INITIALIZER_UNLOCKED=0,portMAX_DELAY=0,pdPASS=1;
 inline void portENTER_CRITICAL(portMUX_TYPE*){}
 inline void portEXIT_CRITICAL(portMUX_TYPE*){}
-inline void xSemaphoreTake(int,int){}
-inline void xSemaphoreGive(int){}
+void xSemaphoreTake(int,int);
+void xSemaphoreGive(int);
 inline uint32_t pdMS_TO_TICKS(uint32_t n){return n;}
-inline void vTaskDelay(uint32_t n){hostMillis+=n;}
+using TaskHandle_t=void*;
+enum eTaskState {eRunning,eReady,eSuspended};
+void vTaskDelay(uint32_t n);
 inline void taskYIELD(){}
 struct HostTaskFinished{};
-inline void vTaskDelete(void*){throw HostTaskFinished{};}
-namespace host {extern void(*task)(void*);extern void* taskArg;extern bool createTask;}
-inline int xTaskCreatePinnedToCore(void(*fn)(void*),const char*,int,void* arg,int,void*,int){if(!host::createTask)return 0;host::task=fn;host::taskArg=arg;return pdPASS;}
+struct HostTaskSuspended{};
+void vTaskDelete(void* task);
+void vTaskSuspend(void* task);
+eTaskState eTaskGetState(TaskHandle_t task);
+TaskHandle_t xTaskGetCurrentTaskHandle();
+int xTaskCreatePinnedToCore(void(*fn)(void*),const char*,int,void* arg,int,TaskHandle_t*,int);

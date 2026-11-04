@@ -28,6 +28,14 @@ constexpr uint8_t SD_FILE_SLOTS=5;
 #endif
 TaskHandle_t writerTask=nullptr;
 std::atomic<bool> mounted{false}, openSession{false}, busy{false};
+#if defined(LORA_TUNNEL_CARDPUTER_ADV)
+// 0 idle, 1 reserving, 2 pending, 3 executing. Publish callback pointers only
+// after reserving ownership; external idle stays false until execution ends.
+std::atomic<unsigned> maintenanceState{0};
+void (*maintenanceRun)(void*)=nullptr;
+void* maintenanceContext=nullptr;
+void (*maintenanceComplete)()=nullptr;
+#endif
 storage::CheckedFile sessionFile;
 uint32_t sequence=0, fileSession=0;
 char buffer[8192];
@@ -244,10 +252,27 @@ void serialize(const Observation& event) {
   ++bufferedRecords;
   ++counters.written; // Serialized/enqueued to write buffer, not a durability claim.
 }
+bool writerQuiescent() {
+  return queue && uxQueueMessagesWaiting(queue)==0 && !openSession && !busy;
+}
+void serviceIdleMaintenance() {
+#if defined(LORA_TUNNEL_CARDPUTER_ADV)
+  if(maintenanceState.load()!=2 || !writerQuiescent()) return;
+  maintenanceState=3;
+  auto run=maintenanceRun;auto context=maintenanceContext;auto complete=maintenanceComplete;
+  run(context);
+  maintenanceRun=nullptr;maintenanceContext=nullptr;maintenanceComplete=nullptr;
+  maintenanceState=0;
+  // Upload ownership is released only after loggerIdle can truthfully return
+  // true; a queued Start cannot race the final radio-restoration boundary.
+  complete();
+#endif
+}
 void task(void*) {
   Observation event;
   uint32_t lastFlush=millis();
   for (;;) {
+    serviceIdleMaintenance();
     if (xQueueReceive(queue,&event,pdMS_TO_TICKS(100))==pdTRUE) {
       busy=true;
       if(event.kind==Kind::Start) beginSession(event);
@@ -289,6 +314,12 @@ bool loggerBegin() {
   return true;
 }
 bool logObservation(const Observation& event) {
+#if defined(LORA_TUNNEL_CARDPUTER_ADV)
+  if(maintenanceState.load()!=0) {
+    if(event.kind!=Kind::Start && event.kind!=Kind::Stop) ++counters.log_drops;
+    return false;
+  }
+#endif
   if (!queue || xQueueSend(queue,&event,0)!=pdTRUE) {
     // Control commands are retried; count only an observation actually dropped.
     if(event.kind!=Kind::Start && event.kind!=Kind::Stop) ++counters.log_drops;
@@ -296,7 +327,33 @@ bool logObservation(const Observation& event) {
   }
   return true;
 }
-bool loggerIdle() { return queue && uxQueueMessagesWaiting(queue)==0 && !openSession && !busy; }
+bool loggerIdle() {
+#if defined(LORA_TUNNEL_CARDPUTER_ADV)
+  if(maintenanceState.load()!=0) return false;
+#endif
+  return writerQuiescent();
+}
+bool loggerRequestMaintenance(void (*run)(void*),void* context,void (*complete)()) {
+#if defined(LORA_TUNNEL_CARDPUTER_ADV)
+  if(!run || !complete || capturing.load() || !writerTask || !writerQuiescent()) return false;
+  unsigned expected=0;
+  if(!maintenanceState.compare_exchange_strong(expected,1)) return false;
+  if(capturing.load() || !writerQuiescent()) { maintenanceState=0;return false; }
+  maintenanceRun=run;maintenanceContext=context;maintenanceComplete=complete;
+  maintenanceState=2;
+  return true;
+#else
+  (void)run;(void)context;(void)complete;return false;
+#endif
+}
+bool loggerMaintenanceQuiescent() {
+#if defined(LORA_TUNNEL_CARDPUTER_ADV)
+  return maintenanceState.load()==3 && xTaskGetCurrentTaskHandle()==writerTask &&
+      !capturing.load() && writerQuiescent();
+#else
+  return false;
+#endif
+}
 bool unmountStorageForSleep() {
   if(!loggerIdle()) return false;
   SD.end(); mounted=false;
