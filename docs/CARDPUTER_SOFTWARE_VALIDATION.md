@@ -1,14 +1,19 @@
 # Cardputer 0.4.0-beta.1 software candidate
 
 Updated 2026-11-03 (America/New_York). **Public release remains blocked.**
-The newer **HW6 candidate is built and packaged but has not been flashed**.
-HW5 remains installed and stopped after its staged Brave installation and
-short Wardriver/Recon checks. **HW5 failed the minimum-heap threshold**:
+**HW6 is installed by a verified USB application update and is stopped after
+its stationary 30-minute Wardriver test.** The user confirmed custom tones
+without repeating during the short Recon check. The 30-minute run passed its
+continuity and resource checks, but the strict overall result is **failed**:
+the required 30 new UI presentation samples were not exercised (`ui_samples`
+remained zero). This is stationary runtime evidence, not interactive or field
+acceptance. Independent SD readback now passes for the HW6 Recon and full
+Wardriver sessions, including all 34 saved LoRa records and explicit accounting
+for 851 log drops. Known-source LoRa matching, the exact HW6 web/factory
+installation, Launcher, battery/power and live uploads remain pending. **HW5's earlier minimum-heap failure remains recorded below**:
 25,168 bytes after Recon, 7,600 bytes below the required 32,768 bytes. Independent
-SD readback passed for three earlier HW3/HW4 sessions. HW6's sound, upload and
-memory changes require fresh device tests; sustained capture, known-source
-LoRa, live uploads, Launcher and overall acceptance remain pending. The
-published Heltec 0.3.0-beta.1 artifacts remain unchanged.
+SD readback passed for three earlier HW3/HW4 sessions. The published Heltec
+0.3.0-beta.1 artifacts remain unchanged.
 
 The HW6 application was compiled for `cardputer-adv-lora1262` with the pinned
 Arduino-ESP32 3.3.12 / ESP-IDF 5.5.5 toolchain. Its application image is
@@ -39,12 +44,14 @@ paths below remain unchanged. These builds do not replace the published Heltec
 | Complete logger evidence within the Cardputer JSON arena | 21 checks passed |
 | Real upload worker with in-memory SD and scripted HTTPS | 516 Cardputer checks and 425 Heltec checks passed; no network requests |
 | Actual session request/marker, stopped-session and alert integration handling | 76 checks passed |
-| Embedded builds | Cardputer HW6 final incremental build and current-source Heltec regression passed; HW6 remains unflashed |
+| Embedded builds | Cardputer HW6 final incremental build and current-source Heltec regression passed; HW6 USB application installation is separately verified below |
 | Cardputer image/package validation | Passed image digests, partition table, target/version, application ceiling, blank factory NVS and factory/application equality |
 | HW4/HW5/HW6 linker placement | Post-link verification passed; 12,041 linked input-section bytes placed in flash under the pinned official non-ISR policy, producing an 11,008-byte build-time heap-boundary gain; required ISR/cache-disabled code remains in IRAM |
 
 The factory and Launcher files contain the same application. These hashes
-identify the **built, unflashed HW6 candidate**, not a fully accepted public release:
+identify the **packaged HW6 candidate and its verified installed application**;
+the HW6 merged factory has not yet been installed through the web flasher, and
+this is not a fully accepted public release:
 
 ```text
 5d3f668ea224a39c705bc8ead401c6acbfe0eabda620ceee98ee79c0753bec41  LORA-Tunnel-0.4.0-beta.1-Cardputer-ADV-LoRa1262-FACTORY-0x0.bin
@@ -85,7 +92,9 @@ per observed identity per explicit Recon session. A non-evicting 128-identity
 history uses exactly 1 KiB and suppresses new sound when full; display-cache
 eviction and mute/unmute do not replay a device. Stop, mode change, mute and
 sleep cancel the motif. Host tests cover the actual scheduler/history and
-main-loop admission paths; no HW6 sound has been physically accepted yet.
+main-loop admission paths. The user has now confirmed short custom tones
+without repeating on HW6, within the limited Recon test described below; this
+does not establish every motif, long-session behavior or Heltec acoustics.
 
 Cardputer now initializes its audio task/I2S resources before capture and BLE,
 so first sound does not trigger late initialization. Its 32 summary records
@@ -94,8 +103,9 @@ summary storage by 2,048 bytes; complete captured/logged evidence is unchanged.
 Heltec retains its existing summary capacity. A registered public failed-
 allocation callback uses an IRAM-checked function and a sticky atomic flag;
 status reports registration and whether any allocation failure was seen, not
-private allocation details or a count. These changes need new heap/stack and
-allocation-failure observations on HW6 rather than extrapolated acceptance.
+private allocation details or a count. The HW6 observations below cover the
+short Recon/audio test and stationary Wardriver workload; maximum raw evidence
+and upload/restore memory behavior still require their own measurements.
 Upload interface/state fixes are incorporated and covered by the updated
 worker/UI tests; their device and live-service acceptance is still pending.
 
@@ -139,7 +149,7 @@ ef299b6b71f2244619373013a645183f66d3fdecb11e52b8e322e25a740cb4bf  HW4 factory
 33831c9fed05c99bb41f00c19f5ce631b6ecf76d0ce5bca1e9d65ed48871b606  HW4 application
 ```
 
-They do not validate the newer HW5 image.
+They do not validate the later HW5 or HW6 images.
 
 The user confirmed HW4 display/navigation operation and that the US region was
 retained. The image booted with the keyboard, cap, shared SPI/SD, LoRa frontend,
@@ -212,8 +222,9 @@ upload readiness or successful service receipts.
 
 ## Limited HW5 installation and runtime evidence
 
-HW5 remains installed and stopped at this checkpoint. Its historical hashes
-below are distinct from the unflashed HW6 hashes above:
+HW5 was previously installed and stopped, and has now been superseded by HW6.
+Its historical hashes below are distinct from the installed HW6 application
+hash above:
 
 ```text
 a5f3f0f342141ccf82fff219f6bf826b99d915f8e4c64539a08d81535de1d2df  HW5 factory
@@ -221,8 +232,8 @@ a5f3f0f342141ccf82fff219f6bf826b99d915f8e4c64539a08d81535de1d2df  HW5 factory
 ```
 
 Brave's staged ESP Web Tools installer completed the HW5 factory installation
-with Erase device unchecked. Independent readback confirmed the exact current
-HW5 application SHA-256 in this section. Bootloader/partition bytes, OTA data and application
+with Erase device unchecked. Independent readback confirmed the exact
+then-installed HW5 application SHA-256 in this section. Bootloader/partition bytes, OTA data and application
 bytes matched their factory-image ranges exactly. After first boot, **2,306
 bytes differed only within the NVS partition** (`0x9000` to `0xe000`); this is
 not described as a whole-factory byte-for-byte match after runtime state was
@@ -260,15 +271,149 @@ physical input-latency evidence. There is no new HW5 user confirmation of
 display/navigation in this record.
 
 The upload fixes, new alert behavior and memory changes are incorporated in
-the built HW6 candidate. Repeat affected hardware checks against its exact
-hashes before the sustained test; HW5 installation and runtime evidence do not
-validate HW6. The current software counts above are host/build evidence only.
+HW6. HW5 installation and runtime evidence do not validate HW6; its separate
+limited device evidence follows. The software counts above remain host/build
+evidence only.
 
-The remaining gate includes resolving the runtime heap shortfall, sustained
-capture, final-candidate SD readback and storage recovery, known-source LoRa
-reception, cold-start configuration behavior, power/wake, physical input
-latency, Launcher installation/return, and enabled-service live WiGLE/Wardrift/
-WDGWars acceptance with cancellation and capture resumption. The
+## HW6 verified installation and limited audio evidence
+
+HW6's **1,727,152-byte application** was installed at `0x10000` using esptool
+4.8.1.1 over USB. Independent application readback matched the exact
+`b0c8a2680cef93d70f789488903ab9a6d391f717ea47f449dcabe518ef6e6254`
+SHA-256 above. Boot/partition data and NVS were preserved. This verifies the
+installed application, not installation of the HW6 merged factory image through
+the browser. The corresponding installation evidence is recorded in
+`hw6-usb-app-verification.json`; private backup contents are not published.
+
+A short command sequence selected Recon, captured for **45.031 seconds**,
+stopped/saved and returned to idle Wardriver. All four short command
+observations completed without reported serial/diagnostic failure. Recon
+reported 34 matches and five admitted alert identities, with zero reported
+drops, errors or latched allocation failures. The lowest lifetime internal-heap
+reading was **33,988 bytes**, the smallest sampled largest block was
+**28,660 bytes**, and the observed loop/writer stack margins were
+**4,652 / 3,044 bytes**. Stop completed with `running=0`, `saving=0` and
+`tone_active=0`; no additional alert identity was admitted in the stop or
+idle-Wardriver samples. These are limited workload measurements, not
+maximum-payload, all-transition or sustained Recon proof.
+
+The user confirmed: **"Custom tones play without repeating"**. This supports
+short multi-note sound and no repeating alerts during that Recon check. It
+does not establish every category motif, rotating identities, full-history
+behavior, long sessions or physical Heltec audio. The bounded diagnostic and
+user records are `hw6-audio-smoke.json` and
+`hw6-user-audio-confirmation.json`.
+
+## HW6 stationary 30-minute Wardriver evidence
+
+The exact verified HW6 application completed **1,800.125 seconds** of stationary
+USB-powered observation with **1,774 valid status samples**. The sample span was
+1,799.297 seconds and the largest sample gap was 1.062 seconds. The strict
+checker result is **failed only on `ui_samples`**: zero new UI presentation
+frames were recorded, rather than the required 30. No keyboard-dispatch timing,
+physical input latency or interactive sustained-capture pass is claimed. Zero
+reported UI latency with zero frames is not a latency measurement.
+
+The continuity, capture-state, counter, error, memory, monitored-stack and
+allocation-reporting checks passed. No crash, watchdog/reset diagnostic or
+latched allocation failure was reported during the observation. The public
+allocation hook was registered; its scope excludes allocations before hook
+registration and private pool exhaustion.
+
+| HW6 stationary observation | Recorded value | Required resource threshold |
+| --- | ---: | ---: |
+| Lifetime minimum free internal heap | 33,516 bytes | At least 32,768 bytes |
+| Smallest sampled largest internal block | 25,588 bytes | At least 16,384 bytes |
+| Loop-task lifetime stack margin | 4,496 bytes | At least 1,024 bytes |
+| Writer-task lifetime stack margin | 3,044 bytes | At least 1,024 bytes |
+| Smallest sampled free heap | 36,020 bytes | Diagnostic point samples |
+| UI presentation frames added | **0 — requirement not exercised** | At least 30 |
+
+The lifetime heap minimum cleared the threshold by **748 bytes**. This is a
+limited margin for the observed workload, not proof of worst-case headroom.
+Free-heap first/last 60-sample window means were **38,112.3 / 38,316.1 bytes**;
+the corresponding largest-block means were **29,103.7 / 29,137.9 bytes**. The final
+sampled windows were not lower than the first; this comparison does not show a
+growing heap loss, but cannot prove the absence of a leak or lower
+between-poll values. Heap minima and stack margins
+are lifetime measures since boot/task creation, not values reset for this run.
+
+Wi-Fi, BLE and LoRa counters all increased. LoRa remained ready and its receive
+counter increased by **34**. The user subsequently confirmed sending a normal
+Meshtastic test message during the run, but no exact transmission time or node
+identity has yet been matched to a captured packet. Independent SD readback
+now confirms 34 saved LoRa records, as detailed below, but does not identify
+which packet came from that transmission. **Known-source LoRa acceptance
+remains pending.** GNSS reported a fix in **634 of 1,774 samples**
+and ended with zero satellites: the fix was intermittent, not continuous
+positioning acceptance. Reported drops increased by **851**; errors began and
+ended at zero without an intermediate increase. Drops remain an explicit
+limitation, and counters do not establish lossless RF reception. Speaker
+readiness remained true; all Wardriver samples showed an inactive tone and no
+new admitted alert identities.
+
+After Stop/save, status confirmed `running=0`, `saving=0`, SD ready, zero errors,
+an inactive tone and no latched allocation failure. Free heap was **39,392
+bytes**, the largest block **30,708 bytes**, and the lifetime heap/stack minima
+remained **33,516 / 4,496 / 3,044 bytes**. This confirms return to saved/idle
+state in diagnostics; subsequent independent SD readback is recorded below.
+The sanitized runtime review is `hw6-wardriver-30min-review.json`. No captured
+identifiers, coordinates or credential values are included in this record.
+
+## Independent HW6 SD readback and Launcher-file preparation
+
+The microSD was independently read through the PC reader after Stop/save. A
+private backup of **1,069 files / 556,802,856 bytes** was verified before further
+preparation. The selected HW6 Recon and Wardriver files both passed the strict
+offline validator with zero validation errors: one complete matching start/end
+pair, contiguous sequences, consistent session/mode/board/version, valid retained
+raw lengths and schema-enforced GNSS freshness rules. The sanitized results are
+entries 5 and 7 of `sd-readback-hw5-hw6.json`.
+
+| HW6 session read back | Total records including two markers | Wi-Fi records | BLE records | LoRa records | Fresh receiver-fix radio records | Fresh UTC radio records | Log-drop delta |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Short Recon/audio test | 36 | 1 | 33 | 0 | 0 | 34 | 0 |
+| Full stationary Wardriver session | 69,259 | 6,862 | 62,361 | 34 | 24,899 | 69,257 | 851 |
+
+The full Wardriver session spans **1,805.903 seconds** between its markers,
+slightly longer than the 1,800.125-second serial observation window. Its
+**69,257 saved radio records plus 851 reported log drops equal the 70,108
+observed radio-counter total** for the full session. The difference is fully
+accounted for by the recorded log-drop counter; this does not establish lossless
+RF reception or eliminate the drops. Both HW6 sessions report zero marker deltas
+for ingress drops, storage errors and radio errors.
+
+Of the saved Wardriver radio records, **24,899** contain schema-valid fresh
+receiver fixes. All **44,358** records with invalid fixes have null latitude
+and longitude, so unavailable positions were not written as valid geotags.
+All **69,257** saved radio records have fresh UTC. The short Recon file has no
+fresh receiver fixes, while all 34 radio records have fresh UTC; its evidence
+must not be described as GPS-positioned. These counts do not establish location
+accuracy, continuous positioning or eligibility of every record for upload.
+
+All **34 LoRa records** identify the configured **906.875 MHz** receive
+frequency. The largest retained LoRa payload was **104 bytes** and the largest
+BLE payload **31 bytes**; the Wi-Fi records were AP scan results without raw
+frames. This readback therefore does not exercise maximum raw payloads or the
+1,024-byte Wi-Fi frame path. The user confirmed transmitting a normal Meshtastic
+message but does not know its node identifier or exact time; matching that
+transmission to a saved packet remains pending. Aggregate cross-checks are
+recorded in `sd-hw6-crosscheck.json` without publishing captures or identifiers.
+
+The **1,727,152-byte HW6 Launcher application BIN** was copied onto the microSD
+and independently read back with the exact application SHA-256 listed above.
+The previous SD image was preserved in the verified private backup. This is
+verified file preparation only: **installation through Launcher and return to
+Launcher have not been tested**. `sd-hw6-launcher-copy.json` records that limited
+result. Private backup paths, captures, credentials and coordinates are not
+included in this document.
+
+The remaining gate includes interactive sustained capture and field testing,
+SD fault/recovery cases, maximum raw-evidence and upload/restore resource checks,
+known-source LoRa matching, cold-start configuration and battery/power/wake
+behavior, physical input latency, the exact HW6 web/factory installation,
+Launcher installation/return, and enabled-service live WiGLE/Wardrift/WDGWars
+acceptance with cancellation and capture resumption. The
 [device test procedure](CARDPUTER_TEST_PROCEDURE.md) and
 [publication gate](CARDPUTER_RELEASE.md) define those checks. Build and host-test
 success does not authorize enabling the public installer or submitting the
