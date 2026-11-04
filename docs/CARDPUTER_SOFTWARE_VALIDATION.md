@@ -1,14 +1,18 @@
 # Cardputer 0.4.0-beta.1 software candidate
 
-Updated 2026-11-03 (America/New_York). **Public release remains blocked.**
-**HW9 is installed by an independently verified USB application update.**
-A ten-status, approximately ten-second read-only boot observation confirmed
-the expected target, initialized keyboard/audio/cap/LoRa, and stopped capture
-and upload. No allocation failure or error-counter growth was observed. SD was
-not mounted (`sd=0`); the expected missing-storage error counter stayed at one.
-The **56,476-byte** internal-heap minimum describes this stopped boot without
-mounted storage, not capture or TLS load. No HW9 capture, storage test, UI
-action, audio audition or live upload was performed.
+Updated 2026-11-04 (America/New_York). **Public publication remains pending.**
+**HW11 is installed by an independently verified USB application update.**
+The upload parser now releases its 14,337 requested buffer bytes before HTTP,
+and Cardputer waits for idle-task reclamation after BLE shutdown before
+allocating the upload worker. The device passed 100 consecutive offline
+maintenance cycles and 30 timed cancellation checks (26 canceled, four already
+completed). Every cycle returned to a ready BLE scanner with capture stopped.
+The reported lifetime internal-heap minimum was **55,416 bytes**; the sampled
+largest internal block remained **31,732 bytes**. There were no observed resets,
+allocation failures or error-counter increases. The expected absent-storage
+error counter remained one. These checks made no Wi-Fi association, TLS
+connection, live upload, capture or storage access. Detailed scope follows
+under the HW10/HW11 checkpoint below.
 
 Historical HW7 save/navigation and short-capture results remain scoped to HW7.
 The user-confirmed US save and fresh keyboard navigation had a qualified
@@ -16,7 +20,7 @@ functional/resource pass: minimum internal heap was **37,780 bytes**, with
 **17 ms** dispatch-to-presentation latency and no reported allocation failure.
 The short HW7 capture checks retained a **34,368-byte** internal-heap minimum;
 both sessions independently passed copied-file readback. These results do not
-establish HW9 behavior or complete release acceptance. The user canceled
+establish HW11 behavior or complete release acceptance. The user canceled
 further SD-card testing; no completed physical full-card fault test is claimed
 or scheduled as the next step.
 
@@ -730,3 +734,98 @@ public publication remain pending, with the existing release gates unchanged.
 The current-source Heltec build is regression evidence only; its published
 0.3.0-beta.1 artifacts remain unchanged. Further SD-card testing remains
 canceled.
+
+## HW10/HW11 upload memory optimization and offline hardware checks
+
+HW10 separates CSV parsing and HTTPS into distinct allocation lifetimes. It
+releases the 8,193-byte line buffer, 2,048-byte row buffer and 4,096-byte JSON
+arena before every POST or job-status GET. The JSON document object is also
+released. A row that crosses the 1 MiB chunk boundary is reread from its saved
+source offset after the preceding chunk finishes; reopening requires unchanged
+source length and successful seek. Original sessions, retained raw-evidence
+limits, capture queues and the screen buffer are unchanged. Host tests check
+16,000 distinct records across chunk boundaries exactly once and in order,
+parser-reallocation failure, source-size change and failed seek. The fake HTTP
+adapter rejects any live parser allocation at request entry.
+
+HW10 was installed and passed its first offline cycle. A subsequent 100-cycle
+run stopped at its resource subcheck after 51 completed cycles: a sampled
+parser-phase largest free block fell to **15,860 bytes**. No allocation failure,
+reset or growing idle-heap loss was observed. That failed subcheck remains in
+the private HW10 record. It is not a successful 100-cycle run and does not
+measure the memory available during HTTPS.
+
+HW11 adds a bounded idle-task cleanup barrier after Cardputer BLE shutdown.
+The pinned NimBLE host task deletes itself, so its stack can remain pending
+idle-task reclamation after deinitialization returns. The existing writer waits
+for two core-0 idle passes before creating the 16 KiB worker. The idle callback
+only increments an atomic; it does not block or allocate. Registration failure,
+cancellation or a one-second timeout stops admission and restores BLE without
+creating the upload worker. The hook is deregistered on every registered path.
+Heltec keeps its existing BLE lifetime. Hardware repetition supports the new
+sequence; it does not by itself prove the cause of every HW10 transient.
+
+Separate diagnostics now distinguish all upload-phase samples from the
+post-parser, pre-HTTP checkpoint. Both are lifetime minima since boot. The
+offline self-check exercises actual BLE release/restoration, worker lifetime,
+parser allocation/release and cancellation, using no files, credentials,
+Wi-Fi association, HTTP requests or preference writes. It is admitted only
+while capture and save are stopped and logger maintenance can be reserved.
+
+The final HW11 Cardputer and Heltec builds passed. Actual uploader fixtures
+passed **17,127 Cardputer / 16,869 Heltec assertions**, including 16,000 individual
+row-order assertions per target; these are not that many separate test cases.
+The actual-session and BLE-lifecycle fixtures passed **94 / 42 checks**, checked
+storage/logger fixtures passed **583 / 498**, and **99 Python tests** passed.
+The package validator, source-input comparison and whitespace checks passed.
+All **76 application/build-policy inputs** match digest
+`68dbc3065ffbd5afd6b24b07a80bf0bf2ac4027b08db37c3e1058fe6937ed0df`.
+
+The application is **1,734,656 bytes**, **1,607,680 bytes** below its ceiling.
+The factory and Launcher packages contain identical application bytes:
+
+| HW11 artifact | SHA-256 |
+| --- | --- |
+| Launcher application | `d4c086da98beb4a3cdf99457ba0059f71af7abc988344f65b665c10b7b12d58a` |
+| Factory at 0x0 | `ae88b656f3d74ead93944c2b98f2b74f72c08fde49f2a78983b1cd04ccff3565` |
+
+Before installation, the entire 8 MiB device flash was backed up privately and
+verified against the preceding HW10 app and expected layout. The new app was
+written at 0x10000 and verified independently. An exact 64 KiB readback before
+boot confirmed unchanged bootloader, partitions, OTA metadata and NVS bytes.
+A ten-status stopped boot observation passed, followed by one initial offline
+cycle, **100 consecutive offline cycles**, and **30 cancellation-timing checks**.
+The latter observed **26 actual cancellations** and four completions before
+cancellation; all returned to a ready scanner with stopped capture/upload.
+
+Across the 100-cycle run, sampled idle free heap ranged from **57,184 to 57,232
+bytes**. The first/last ten-cycle means were **57,215.2 / 57,214.8 bytes**, with
+no growing loss observed over this bounded run. After the cancellation checks:
+
+| Reported measurement | Bytes |
+| --- | ---: |
+| Lifetime minimum free internal heap | 55,416 |
+| Sampled largest internal block | 31,732 |
+| Upload-phase sampled minimum free internal heap | 68,412 |
+| Offline post-parser sampled minimum free internal heap | 84,512 |
+| Offline post-parser smallest sampled largest block | 31,732 |
+| Loop / writer stack lifetime low-water margins | 5,168 / 3,232 |
+| Offline upload-worker stack lifetime low-water margin | 15,196 |
+
+These are stopped/offline measurements, not capture contention, full TLS stack
+or live upload acceptance. No crashes, watchdog reports or allocation failures
+were observed, and the absent-storage error count remained one. The passive
+GNSS parser reported a fresh fix with five to six satellites; no coordinates
+were retained here, and this does not verify saved geotags or GNSS accuracy.
+There was no physical UI action, audio audition, new web installation or
+Launcher installation in this run. The earlier RTTTL/user-input evidence
+remains attributed to its original candidate.
+
+The exact installation, boot and repetition reports are retained privately as
+`hw11-usb-app-verification.json`, `hw11-boot-review.json`,
+`hw11-upload-offline-100.json` and `hw11-upload-offline-cancel-30.json`.
+Cardputer was left with capture, save and uploads stopped. Further SD-card work
+remains canceled. Production flasher publication, GitHub/Gitea release assets
+and M5Burner submission have not occurred for this candidate. Physical Launcher,
+exact factory/web installation, battery/sleep/wake, sustained interactive
+capture and live-service receipts remain distinct outstanding validation.

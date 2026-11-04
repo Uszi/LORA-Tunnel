@@ -13,6 +13,7 @@ void uploadHostFree(void*);
 #undef free
 uint32_t hostMillis=1000;
 namespace host {
+bool (*idleHook)()=nullptr;bool registerIdleOK=true,runIdle=true;unsigned idleCalls=0;void(*afterIdle)()=nullptr;
 void(*task)(void*)=nullptr;void* taskArg=nullptr;
 void(*workerTask)(void*)=nullptr;void* workerArg=nullptr;
 TaskHandle_t currentTask=reinterpret_cast<void*>(1);
@@ -63,8 +64,17 @@ bool loggerIdle(){return writerHost::loggerIdle();}
 }
 TaskHandle_t xTaskGetCurrentTaskHandle(){return host::currentTask;}
 eTaskState eTaskGetState(TaskHandle_t task){if(task!=reinterpret_cast<void*>(3))throw std::runtime_error("invalid worker handle");return host::parked?eSuspended:eReady;}
+int esp_register_freertos_idle_hook_for_cpu(bool(*hook)(),unsigned core){
+  if(core!=0||host::idleHook||host::workerStack||host::bleReady)throw std::runtime_error("invalid BLE cleanup barrier registration");
+  if(!host::registerIdleOK)return -1;host::idleHook=hook;return 0;
+}
+void esp_deregister_freertos_idle_hook_for_cpu(bool(*hook)(),unsigned core){
+  if(core!=0||host::idleHook!=hook)throw std::runtime_error("invalid BLE cleanup barrier removal");host::idleHook=nullptr;
+}
 void vTaskDelay(uint32_t n){
   hostMillis+=n;
+  if(host::idleHook&&host::runIdle){host::idleHook();++host::idleCalls;if(host::afterIdle){auto callback=host::afterIdle;host::afterIdle=nullptr;callback();}}
+
   if(host::parkDeferred) {
     if(host::currentTask!=writerHost::writerTask||!tunnel::uploaderBusy()||host::workerStack!=16384||host::bleReady)
       throw std::runtime_error("completion publication released resources before suspension");
@@ -101,6 +111,7 @@ int xTaskCreatePinnedToCore(void(*fn)(void*),const char*,int stack,void* arg,int
 #if defined(LORA_TUNNEL_CARDPUTER_ADV)
   if(host::currentTask!=writerHost::writerTask||host::bleReady||stack!=16384||core!=0||!handle||!tunnel::uploaderBusy()||tunnel::loggerIdle())
     throw std::runtime_error("upload stack allocated outside BLE-free writer-owned interval");
+  if(host::idleHook||host::idleCalls<2)throw std::runtime_error("upload stack allocated before BLE idle cleanup");
   if(!host::createTask)return 0;
   host::workerTask=fn;host::workerArg=arg;host::workerStack=stack;host::parked=false;*handle=reinterpret_cast<void*>(3);++host::created;
 #else
@@ -152,6 +163,8 @@ void reset(int service=0) {
   host::files.clear();host::directories={"/sessions"};host::failWritePath.clear();host::scripts.clear();host::calls.clear();host::connected=true;host::associations=0;host::afterWrite=nullptr;host::epoch=1;hostMillis=1000;
   if(!host::buffers.empty()||host::activeHttp||host::openFiles)throw std::runtime_error("Previous worker leaked ownership/resources");
   if(host::workerStack||writerHost::maintenanceState)throw std::runtime_error("Previous task/maintenance leaked");
+  if(host::idleHook)throw std::runtime_error("idle cleanup callback leaked");
+  host::registerIdleOK=host::runIdle=true;host::idleCalls=0;host::afterIdle=nullptr;
   host::created=host::deleted=host::parkWaits=0;host::maintenanceOK=true;host::workerTask=nullptr;
   host::parked=host::deferPark=host::parkDeferred=false;
   host::afterPark=host::afterRestore=nullptr;host::currentTask=reinterpret_cast<void*>(1);
@@ -162,7 +175,7 @@ void reset(int service=0) {
   config=Config{};strlcpy(config.wifi_name,"Synthetic home",128);strlcpy(config.wifi_password,"testpass",128);strlcpy(config.wigle_name,"testname",128);strlcpy(config.wigle_token,"testtoken",128);strlcpy(config.wardrift_token,"testwardrift",128);strlcpy(config.wdgwars_token,"testwdgwars",128);
   config.auto_wigle=service==0;config.auto_wardrift=service==1;config.auto_wdgwars=service==2;
   busy=false;cancelled=false;requests=retryMask=jobPollMask=authBlocked=0;nextRetry=nextJobPoll=0;associationFailures=0;wasIdle=false;initialPending=true;settingsEpoch=1;
-  uploadRuns=uploadMinFree=uploadSmallestBlock=uploadStackMargin=selfCheckState=0;
+  uploadRuns=uploadMinFree=uploadSmallestBlock=uploadStackMargin=selfCheckState=uploadReadyFree=uploadReadyBlock=0;
   uploaderBegin();host::files[sourcePath]=session();
 }
 void task(){
@@ -335,8 +348,11 @@ int main() {
   reset();const auto filesBefore=host::files;expect(uploaderSelfCheck(),"offline memory check admitted while idle");
   expect(!uploaderSelfCheck(),"offline memory check refuses concurrent work");task();
   const auto metrics=uploaderMetrics();
-  expect(metrics.self_check==2&&metrics.runs==1&&metrics.min_free&&metrics.smallest_block&&metrics.stack_margin,"offline check completes with resource diagnostics");
+  expect(metrics.self_check==2&&metrics.runs==1&&metrics.min_free&&metrics.smallest_block&&metrics.stack_margin&&metrics.ready_free&&metrics.ready_block,"offline check completes with resource diagnostics");
   expect(host::files==filesBefore&&host::peakRegularFiles==0&&host::associations==0&&host::calls.empty(),"offline check performs no file or network operation");
+  reset();host::registerIdleOK=false;expect(uploaderSelfCheck(),"idle-hook registration failure scheduled");task();expect(uploaderMetrics().self_check==3&&host::created==0&&host::restores==1,"hook registration failure restores BLE without upload stack");
+  reset();host::runIdle=false;expect(uploaderSelfCheck(),"idle starvation check scheduled");task();expect(uploaderMetrics().self_check==3&&host::created==0&&host::restores==1&&hostMillis<3000,"idle starvation times out and restores without stack");
+  reset();host::afterIdle=[](){uploaderCancel();};expect(uploaderSelfCheck(),"idle-wait cancellation scheduled");task();expect(uploaderMetrics().self_check==3&&host::created==0&&host::restores==1,"cancel during cleanup removes hook and restores BLE");
   reset();writerHost::capturing=true;expect(!uploaderSelfCheck()&&!host::pauses,"active capture refuses offline check");writerHost::capturing=false;
   for(unsigned phase=1;phase<=3;++phase){reset();host::failAllocation=phase;expect(uploaderSelfCheck(),"allocation-failure check scheduled");task();expect(uploaderMetrics().self_check==3&&host::restores==1,"failed parser allocation restores BLE and reports failure");}
   reset();host::restoreOK=false;expect(uploaderSelfCheck(),"restoration-failure check scheduled");task();expect(uploaderMetrics().self_check==3,"failed restoration cannot claim offline check passed");

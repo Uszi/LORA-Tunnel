@@ -17,6 +17,9 @@
 #include <mbedtls/sha256.h>
 #include <esp_system.h>
 #include <esp_heap_caps.h>
+#if defined(LORA_TUNNEL_CARDPUTER_ADV)
+#include <esp_freertos_hooks.h>
+#endif
 #include <Preferences.h>
 #include <atomic>
 #include <new>
@@ -57,7 +60,7 @@ void status(const char* text){portENTER_CRITICAL(&statusMux);strlcpy(statusText,
 void serviceStatus(int service,const char* text){char line[64];snprintf(line,sizeof(line),"%s: %s",names[service],text);status(line);}
 void workStatus(Work& work,const char* text){work.resultReported=true;status(text);}
 void workServiceStatus(Work& work,int service,const char* text){work.resultReported=true;serviceStatus(service,text);}
-std::atomic<uint32_t> uploadRuns{0},uploadMinFree{0},uploadSmallestBlock{0},uploadStackMargin{0},selfCheckState{0};
+std::atomic<uint32_t> uploadRuns{0},uploadMinFree{0},uploadSmallestBlock{0},uploadStackMargin{0},selfCheckState{0},uploadReadyFree{0},uploadReadyBlock{0};
 void sampleUploadResources() {
   const uint32_t available=heap_caps_get_free_size(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT);
   const uint32_t largest=heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT);
@@ -65,6 +68,13 @@ void sampleUploadResources() {
   if(!uploadMinFree.load() || available<uploadMinFree.load())uploadMinFree=available;
   if(!uploadSmallestBlock.load() || largest<uploadSmallestBlock.load())uploadSmallestBlock=largest;
   if(!uploadStackMargin.load() || margin<uploadStackMargin.load())uploadStackMargin=margin;
+}
+void sampleHttpReadyResources() {
+  sampleUploadResources();
+  const uint32_t available=heap_caps_get_free_size(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT);
+  const uint32_t largest=heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT);
+  if(!uploadReadyFree.load()||available<uploadReadyFree.load())uploadReadyFree=available;
+  if(!uploadReadyBlock.load()||largest<uploadReadyBlock.load())uploadReadyBlock=largest;
 }
 // Ephemeral parser memory is completely absent during HTTP and job polling.
 // The allocator is explicit so tests account for the JSON arena as well as the
@@ -213,8 +223,8 @@ bool writeHttp(esp_http_client_handle_t client,const char* data,size_t size,Resp
   }
   return sent==size;
 }
-__attribute__((noinline)) Response requestHttp(const Work& work,int service,const char* csv,const char* filename,const char* job) {
-  sampleUploadResources();
+Response requestHttp(const Work& work,int service,const char* csv,const char* filename,const char* job) {
+  sampleHttpReadyResources();
   Response response;const bool poll=job&&*job;char url[180];
   if(poll)snprintf(url,sizeof(url),"https://wdgwars.pl/api/v2/upload-job/%s",job);else strlcpy(url,endpoints[service],sizeof(url));
   esp_http_client_config_t settings{};settings.url=url;settings.timeout_ms=4000;settings.disable_auto_redirect=true;
@@ -448,7 +458,7 @@ void worker(void* argument) {
   bool ok=radioReady&&!stopped();
   if(work->selfCheck) {
     {ParserStorage parser;ok=ok&&parser.acquire(true);}
-    sampleUploadResources();
+    sampleHttpReadyResources();
     if(ok)ok=delayUntil(50);
     selfCheckState=ok?2:3;
     status(ok?"Offline upload memory check passed":"Offline upload memory check failed");
@@ -505,6 +515,20 @@ void finishMaintenance() {
   if(cancelled.load()) {retryMask=jobPollMask=0;nextRetry=nextJobPoll=0;}
   busy=false;
 }
+std::atomic<unsigned> bleCleanupPasses{0};
+bool bleCleanupIdleHook() {return bleCleanupPasses.fetch_add(1)+1>=2;}
+bool waitForBleTaskCleanup() {
+  // NimBLE's pinned core-0 host task deletes itself. Its stack is reclaimed by
+  // the idle task, after deinit has reported success. Two observed idle passes
+  // also cover a preempted idle iteration whose deletion sweep already ran.
+  // This callback only increments an atomic; it never blocks or allocates.
+  bleCleanupPasses=0;
+  if(esp_register_freertos_idle_hook_for_cpu(bleCleanupIdleHook,0)!=ESP_OK)return false;
+  const uint32_t started=millis();
+  while(bleCleanupPasses.load()<2&&!stopped()&&millis()-started<1000)vTaskDelay(1);
+  esp_deregister_freertos_idle_hook_for_cpu(bleCleanupIdleHook,0);
+  return bleCleanupPasses.load()>=2&&!stopped();
+}
 void uploadMaintenance(void* argument) {
   Work* work=static_cast<Work*>(argument);
   const bool checking=work->selfCheck;
@@ -514,7 +538,9 @@ void uploadMaintenance(void* argument) {
     paused=scannersPauseBleForUpload();
     if(!paused) status("BLE pause failed; upload deferred");
   }
-  if(paused && !stopped()) {
+  const bool cleanupReady=paused&&!stopped()&&waitForBleTaskCleanup();
+  if(paused&&!stopped()&&!cleanupReady)status("BLE cleanup unavailable; upload deferred");
+  if(cleanupReady) {
     TaskHandle_t task=nullptr;workerFinished=false;
     if(xTaskCreatePinnedToCore(worker,"upload",16384,work,1,&task,0)==pdPASS) {
       // Worker and coordinator share core 0. Waiting for the explicit suspended
@@ -536,7 +562,7 @@ void uploadMaintenance(void* argument) {
 }
 #endif
 }
-UploadMetrics uploaderMetrics(){return {uploadRuns.load(),uploadMinFree.load(),uploadSmallestBlock.load(),uploadStackMargin.load(),selfCheckState.load()};}
+UploadMetrics uploaderMetrics(){return {uploadRuns.load(),uploadMinFree.load(),uploadSmallestBlock.load(),uploadStackMargin.load(),selfCheckState.load(),uploadReadyFree.load(),uploadReadyBlock.load()};}
 bool uploaderSelfCheck() {
 #if defined(LORA_TUNNEL_CARDPUTER_ADV)
   if(busy || !loggerIdle() || !scannersCaptureReady())return false;

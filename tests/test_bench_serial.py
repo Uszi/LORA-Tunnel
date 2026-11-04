@@ -80,7 +80,7 @@ class BenchSerialTests(unittest.TestCase):
         self.assertIsNone(bench.parse_status(status(**dict(fields,heap_hw=-1)).decode().strip()))
 
     def test_upload_resource_metrics_are_nonsecret_optional_integers(self):
-        fields=dict(upload_runs=17,upload_min_free=42000,upload_largest=24000,upload_stack=4096,upload_check=2)
+        fields=dict(upload_runs=17,upload_min_free=42000,upload_largest=24000,upload_stack=4096,upload_check=2,upload_ready_free=65000,upload_ready_block=32000)
         parsed=bench.parse_status(status(**fields,api_token="private").decode().strip())
         for name,value in fields.items():
             self.assertEqual(parsed[name],value)

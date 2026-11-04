@@ -13,7 +13,7 @@ STATUS_FIELDS = (
     "version", "uptime_ms", "ready", "running", "saving", "sd", "touch", "lora",
     "gps_chars", "gps_fix", "sats", "wifi", "ble", "lora_rx", "drops", "errors", "free_heap",
 )
-OPTIONAL_STATUS_FIELDS = ("target", "min_internal", "largest_internal", "loop_stack", "writer_stack", "ui_p95_ms", "ui_max_ms", "ui_samples", "upload", "input_ok", "cap_ok", "init_writer", "init_scanner", "init_memory", "scanner_stage", "heap_hw", "heap_ui", "heap_config", "heap_before_scan", "mode", "matches", "audio_ok", "tone_active", "alerted", "alert_full", "alloc_hook", "alloc_fail", "upload_runs", "upload_min_free", "upload_largest", "upload_stack", "upload_check")
+OPTIONAL_STATUS_FIELDS = ("target", "min_internal", "largest_internal", "loop_stack", "writer_stack", "ui_p95_ms", "ui_max_ms", "ui_samples", "upload", "input_ok", "cap_ok", "init_writer", "init_scanner", "init_memory", "scanner_stage", "heap_hw", "heap_ui", "heap_config", "heap_before_scan", "mode", "matches", "audio_ok", "tone_active", "alerted", "alert_full", "alloc_hook", "alloc_fail", "upload_runs", "upload_min_free", "upload_largest", "upload_stack", "upload_check", "upload_ready_free", "upload_ready_block")
 BOOLEAN_FIELDS = {"alloc_hook", "alloc_fail", "audio_ok", "tone_active", "alert_full", "input_ok", "cap_ok", "init_writer", "init_scanner", "init_memory", "upload","ready", "running", "saving", "sd", "touch", "lora", "gps_fix"}
 DIAGNOSTICS = (
     ("watchdog", re.compile(r"\b(?:task_wdt:\s*(?:Task watchdog got triggered|Aborting)|Interrupt wdt timeout on CPU[0-9]*)\b", re.IGNORECASE)),

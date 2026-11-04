@@ -7,7 +7,7 @@ bool uploaderBegin();
 // Sampled upload-only heap/block minima, and lifetime worker stack low-water.
 // Zero means no worker sample. Self-check:0 unrun,1 running,2 passed,3 failed;
 // a result is final only when uploaderBusy() is false. No credentials included.
-struct UploadMetrics { uint32_t runs,min_free,smallest_block,stack_margin,self_check; };
+struct UploadMetrics { uint32_t runs,min_free,smallest_block,stack_margin,self_check,ready_free,ready_block; };
 UploadMetrics uploaderMetrics();
 // Cardputer USB bench check: idle BLE release/restore and parser allocation only.
 // No SD/files, Wi-Fi association, TLS, uploads, credentials or preference writes.

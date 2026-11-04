@@ -134,3 +134,27 @@ passing dispatch metric alone cannot pass the complete physical latency check.
 Record results against the exact hashes in the release checklist. Any binary
 change invalidates prior binary-specific acceptance. GitHub/Gitea publication,
 production web installation and M5Burner submission follow completed acceptance.
+
+## Optional offline upload-memory diagnostic
+
+On a Cardputer with capture stopped and saved, a USB serial terminal at 115200
+baud can send `tunnel upload-check`, then `tunnel status`. This uses the real
+idle writer, BLE release/restore and upload-worker allocation path, but does
+not access files, connect Wi-Fi, make HTTP requests, copy credentials or write
+settings. It consumes pending automatic/retry triggers for that idle period;
+the stored upload preferences remain unchanged. `tunnel upload-cancel` cancels
+it through the normal cancellation path. It is refused on Heltec and while
+capture, save or another maintenance operation prevents safe admission.
+
+Wait for `upload=0` before interpreting `upload_check`: 0 means unrun, 1 running,
+2 passed and 3 failed/canceled. `scanner_stage=ready` is required afterward.
+`upload_runs` counts completed workers, so cancellation before worker creation
+does not increment it. Resource fields are sampled lifetime minima, not peak
+allocation traces: `upload_min_free` / `upload_largest` cover sampled worker
+phases; `upload_ready_free` / `upload_ready_block` sample after parser release
+and before HTTP client allocation (also reached by this offline diagnostic).
+`upload_stack` is a worker stack low-water mark. Zero means no sample yet.
+
+This diagnostic can verify cleanup and cancellation without capture or a
+service account. It does not replace a real TLS/upload receipt, loaded capture,
+physical UI latency or Launcher installation check.
