@@ -132,6 +132,26 @@ class BenchSerialTests(unittest.TestCase):
                 self.assertNotEqual(result, 0)
                 self.assertIn("no valid post-command", output)
 
+    def test_radio_telemetry_filters_secrets_and_requires_complete_numeric_fields(self):
+        line = "LT RADIO " + " ".join(f"{key}=0" for key in bench.RADIO_FIELDS)
+        self.assertEqual(bench.parse_radio(line + " token=PRIVATE_SECRET"),
+                         dict.fromkeys(bench.RADIO_FIELDS, 0))
+        for bad in (line + " mode=1", line.replace("mode=0", "mode=3"),
+                    line.replace("sf=0", "sf=-1"), line.replace("mc_rx=0", "mc_rx=4294967296"),
+                    line.replace("sync=0", "")):
+            self.assertIsNone(bench.parse_radio(bad))
+        result, _, output = self.exercise(responder=lambda *_: status() +
+            (line + " token=PRIVATE_SECRET\n").encode())
+        self.assertEqual(result, 0)
+        self.assertIn("LT RADIO mode=0", output)
+        self.assertNotIn("PRIVATE_SECRET", output)
+
+    def test_radio_telemetry_cannot_acknowledge_a_command_without_status(self):
+        line = "LT RADIO " + " ".join(f"{key}=0" for key in bench.RADIO_FIELDS)
+        result, _, output = self.exercise(responder=lambda *_: (line + "\n").encode())
+        self.assertNotEqual(result, 0)
+        self.assertNotIn("LT RADIO mode=0", output)
+
     def test_status_then_silence_fails_freshness(self):
         result, _, output = self.exercise(seconds=5, responder=lambda _, count: status() if count == 1 else b"")
         self.assertNotEqual(result, 0)

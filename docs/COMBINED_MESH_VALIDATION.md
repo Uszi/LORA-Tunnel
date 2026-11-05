@@ -1,6 +1,6 @@
 # Combined mesh development validation — 2026-11-05
 
-Version: **0.5.0-dev**, branch `codex/combined-mesh-decoding`. This is a local development checkpoint, not a published release or physical-device acceptance record.
+Version: **0.5.0-dev**, branch `codex/combined-mesh-decoding`. This is a local development checkpoint, not a published release. The Heltec installation and idle check below are limited physical evidence; live decoder and combined-scanning acceptance remain pending.
 
 ## Completed software checks
 
@@ -9,7 +9,7 @@ Version: **0.5.0-dev**, branch `codex/combined-mesh-decoding`. This is a local d
 | Pinned Heltec V4-R8 Expansion V2 firmware build | Passed |
 | Pinned Cardputer ADV / U214 firmware build and linker placement policy | Passed |
 | Native parser/state/configuration suites | 174 tests across 20 suites passed through the actual PlatformIO runner |
-| Python regression tests | 102 passed |
+| Python regression tests | 104 passed after the USB radio telemetry addition, including 20 bench-helper cases |
 | Actual scanner transition fixture | 27 checks passed: dwell, shared SPI contention, complete/in-progress frame races, retune/rearm failures and protocol attribution |
 | Capture queue/AP inventory fixtures | 173 queue checks and 278 AP-inventory checks passed |
 | Configuration lifetime/allocation fixtures | 370 Cardputer and 91 Heltec checks passed |
@@ -26,13 +26,29 @@ Mesh decoding and Recon classification share writer-record storage. Cardputer in
 
 Packaging rejects nonempty upload credentials and private mesh-key lists in public example configuration. Test keys and packets are synthetic/public fixtures. No captured sessions, device coordinates, live credentials or private SD files were used in these tests.
 
+## Heltec installation and idle check
+
+On 2026-11-05, the attached Heltec identified as ESP32-S3 revision 0.2 with 16 MB flash and embedded 8 MB PSRAM. Its existing firmware reported `0.3.0-beta.1`, idle with SD, touch and LoRa ready. Two fresh acquisitions of the recovery prefix `0x000000..0x372000` and coredump tail `0xFF0000..0x1000000` matched independently. The saved application image digest passed, and its partition table matched the development build. These are scoped recovery copies, not a newly verified full-chip backup; restoration remains untested. See [RECOVERY.md](RECOVERY.md) for the older full-chip read discrepancy and the bounds of this recovery procedure. Device-specific files remain private and excluded from source archives.
+
+An initial legacy-stub attempt failed at flash-size configuration before writing anything. A ROM read probe also hit a Windows console-encoding exception. A fresh reset, UTF-8 output and successful small legacy-stub read preceded the matching recovery acquisitions. The completed reads and installation used the pinned esptool 5.4.0 legacy stub at 2,000,000 baud.
+
+The application-only image was written at `0x10000`; the flasher reported the erase range `0x00010000..0x002BFFFF` inclusive, inside the saved prefix. No factory image, full-chip erase, NVS erase, SD edit or eFuse change was part of this installation. Both the write-time digest verification and separate `verify-flash` succeeded before reboot.
+
+- Installed application length: **2,815,920 bytes**.
+- Installed application SHA-256: **`febbf4f28042c757060a629528e72ed778b13d4b61a459b62908158aa6fd20f5`**.
+- Both firmware targets rebuilt successfully after adding allowlisted USB radio telemetry (Heltec 28.551 s; Cardputer 33.656 s). The Cardputer factory and Launcher image validator passed; no Cardputer installation occurred in this check.
+- Startup reported `0.5.0-dev`, target `heltec-v4-r8-tft`, ready with SD, touch controller and LoRa initialized. Forty-five consecutive polled statuses covered uptime 44,615–89,289 ms without reported errors, drops, allocation failures or reset diagnostics.
+- Idle free heap remained **101,448 bytes**, minimum internal free memory **100,676**, largest internal block **61,428**, loop stack watermark **4,444** and writer stack watermark **6,512**. These are an idle sample, not capture or decoder-load headroom measurements.
+- GNSS serial data advanced to **17,311 characters**; no position fix was observed in this window. This does not supersede previous working-GPS evidence or establish a new GPS fault.
+- The retained mode was Meshtastic-only: **906.875 MHz, BW 250 kHz, SF11, CR 4/5, sync 0x2B**. No capture was started in this idle check. Combined switching, on-screen acceptance, packet reception and decoding remain unverified on this build.
+
 ## Required physical acceptance
 
-No flash, live capture, browser installation, GPS acquisition, upload receipt or drive was performed for this development checkpoint. Earlier firmware acceptance does not validate this decoder or scheduler.
+No live capture, browser installation, GPS acquisition, upload receipt or drive was performed for this development checkpoint. Earlier firmware acceptance does not validate this decoder or scheduler.
 
 Before publishing a new beta:
 
-1. Identify the connected target and retain its current recovery image/configuration.
+1. Retain the verified Heltec recovery files; identify and back up each additional target before installation. Preserve private SD configuration before editing it.
 2. Check known Meshtastic and MeshCore transmitters separately with their exact radio settings; compare names, positions and raw packets.
 3. Repeat in combined mode, including packet reception at a scheduled switch and long quiet intervals.
 4. Check Settings mode save/reboot behavior, stop/start, shared SD writes and hardware compatibility on both targets.

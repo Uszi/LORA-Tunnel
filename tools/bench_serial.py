@@ -15,6 +15,9 @@ STATUS_FIELDS = (
 )
 OPTIONAL_STATUS_FIELDS = ("target", "min_internal", "largest_internal", "loop_stack", "writer_stack", "ui_p95_ms", "ui_max_ms", "ui_samples", "upload", "input_ok", "cap_ok", "init_writer", "init_scanner", "init_memory", "scanner_stage", "heap_hw", "heap_ui", "heap_config", "heap_before_scan", "mode", "matches", "audio_ok", "tone_active", "alerted", "alert_full", "alloc_hook", "alloc_fail", "upload_runs", "upload_min_free", "upload_largest", "upload_stack", "upload_check", "upload_ready_free", "upload_ready_block")
 BOOLEAN_FIELDS = {"alloc_hook", "alloc_fail", "audio_ok", "tone_active", "alert_full", "input_ok", "cap_ok", "init_writer", "init_scanner", "init_memory", "upload","ready", "running", "saving", "sd", "touch", "lora", "gps_fix"}
+RADIO_FIELDS = ("mode", "protocol", "frequency_khz", "bandwidth_hz", "sf", "cr", "sync",
+                "remaining_ms", "switches", "deferrals", "timeouts", "interruptions",
+                "mt_listen_ms", "mc_listen_ms", "mt_rx", "mc_rx", "decoded", "other")
 DIAGNOSTICS = (
     ("watchdog", re.compile(r"\b(?:task_wdt:\s*(?:Task watchdog got triggered|Aborting)|Interrupt wdt timeout on CPU[0-9]*)\b", re.IGNORECASE)),
     ("panic", re.compile(r"guru meditation|\bpanic\b", re.IGNORECASE)),
@@ -57,6 +60,27 @@ def parse_status(line):
                 return None
             values[key] = number
     return values if all(key in values for key in STATUS_FIELDS) else None
+
+
+def parse_radio(line):
+    """Allowlisted numeric receiver telemetry; never echo unknown private fields."""
+    if not line.startswith("LT RADIO "):
+        return None
+    values = {}
+    for token in line[len("LT RADIO "):].split():
+        if "=" not in token:
+            return None
+        key, value = token.split("=", 1)
+        if key not in RADIO_FIELDS:
+            continue
+        if key in values or not re.fullmatch(r"[0-9]{1,10}", value):
+            return None
+        number = int(value)
+        ceiling = {"mode": 2, "protocol": 2, "sf": 12, "cr": 8, "sync": 255}.get(key, 4294967295)
+        if number > ceiling:
+            return None
+        values[key] = number
+    return values if all(key in values for key in RADIO_FIELDS) else None
 
 
 def state_matches(command, status):
@@ -173,6 +197,12 @@ def run_bench(connection, command, seconds, *, clock=time.monotonic,
                         on_status(dict(status), round(received_at - started, 6))
                     else:
                         emit("LT STATUS " + " ".join(f"{key}={status[key]}" for key in STATUS_FIELDS + OPTIONAL_STATUS_FIELDS if key in status))
+                elif line.startswith("LT RADIO "):
+                    radio = parse_radio(line)
+                    if radio is not None and latest is not None:
+                        emit("LT RADIO " + " ".join(f"{key}={radio[key]}" for key in RADIO_FIELDS))
+                    else:
+                        omitted += 1
                 else:
                     omitted += 1
         if discarding:
