@@ -1,12 +1,12 @@
 # Library sources and rebuilding modified firmware
 
-For Cardputer ADV 0.4.0-beta.1, use its separately named matching source and
+For Cardputer ADV 0.5.0, use its separately named matching source and
 relink archives and substitute `cardputer-adv-lora1262` for the Heltec environment
 in the commands/paths below. Its companion contains M5Cardputer at commit
 `2d4fa6646e4e5b47e0af96214b003aa7b15b8d81`, M5Unified 0.2.29, M5GFX 0.2.36,
 IRremote 4.5.0 and the common ArduinoJson/NimBLE/RadioLib/TinyGPSPlus libraries.
 Complete nested Adafruit keyboard and font sources/notices remain included.
-The preserved Heltec 0.3.0-beta.1 companion and binary are unchanged.
+Each 0.5.0 target has a separate dependency companion bound to its own firmware hashes. Older releases retain their original archives.
 
 Cardputer also includes project build scripts and the pinned ESP-IDF 5.5.5
 non-ISR placement policy under `build-inputs/`. The full application source
@@ -35,10 +35,10 @@ rebuild/relink the application for your own use, and reverse engineer the
 firmware to debug those modifications. No project term restricts those rights.
 
 Download both the application source archive and
-`LORA-Tunnel-0.3.0-beta.1-relink.zip` from the same release as the firmware.
+`LORA-Tunnel-0.5.0-Heltec-V4-R8-TFT-HIGH-BAND-relink.zip` from the same release as the firmware.
 The companion provides the complete installed Arduino-ESP32 3.3.12 source
 package and sources for TinyGPSPlus 1.1.0, ArduinoJson 6.21.5, LovyanGFX 1.2.24,
-NimBLE-Arduino 2.5.2 and RadioLib 7.8.1, with their original notices. The
+NimBLE-Arduino 2.5.2, RadioLib 7.8.1 and Crypto 0.4.0, with their original notices. The
 application archive supplies the remaining source, board/build configuration,
 local Recon/OpenDroneID libraries and embedded artwork. There is no dependency
 on a private application object file or private signing key.
@@ -66,7 +66,7 @@ images, and all application compilation inputs. Check the downloaded archive
 against the published release hash and verify its internal inventory:
 
 ```text
-python tools/package_relink.py verify ../LORA-Tunnel-0.3.0-beta.1-relink.zip
+python tools/package_relink.py verify ../LORA-Tunnel-0.5.0-Heltec-V4-R8-TFT-HIGH-BAND-relink.zip
 ```
 
 The local library sources used by the normal build are:
@@ -122,7 +122,7 @@ Release maintainers generate the companion from the isolated packages that
 built the preserved release images:
 
 ```text
-python tools/package_relink.py package 0.3.0-beta.1 dist/LORA-Tunnel-0.3.0-beta.1-relink.zip
+python tools/package_relink.py package 0.5.0 dist/LORA-Tunnel-0.5.0-Heltec-V4-R8-TFT-HIGH-BAND-relink.zip
 ```
 
 The tool reads explicit library/framework roots and versioned build artifacts;

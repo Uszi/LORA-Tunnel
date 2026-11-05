@@ -3,9 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="LORA Tunnel beta: standalone Wi-Fi, BLE and LoRa wardriving, with a separate passive Recon mode for Heltec Expansion Kit V2 and Cardputer ADV with Cap LoRa-1262.">
+  <meta name="description" content="LORA Tunnel: standalone Wi-Fi, BLE and LoRa wardriving, with a separate passive Recon mode for Heltec Expansion Kit V2 and Cardputer ADV with Cap LoRa-1262.">
   <meta name="theme-color" content="#07120e">
-  <title>LORA Tunnel · Beta firmware & installer</title>
+  <title>LORA Tunnel · Firmware & installer</title>
   <link rel="icon" href="assets/logo.png" type="image/png">
   <link rel="stylesheet" href="style.css">
   <link rel="canonical" href="https://valleytech-lora-tunnel.pages.dev/">
@@ -15,7 +15,7 @@
 <body>
   <a class="skip" href="#main">Skip to content</a>
   <header class="topbar wrap">
-    <a class="brand" href="#"><img class="brand-logo" src="assets/logo.png" alt="" width="48" height="48"> LORA TUNNEL <span class="beta">BETA</span></a>
+    <a class="brand" href="#"><img class="brand-logo" src="assets/logo.png" alt="" width="48" height="48"> LORA TUNNEL <span class="release-badge">0.5.0</span></a>
     <nav aria-label="Main"><a href="#install">Install</a><a href="#screens">Interface</a><a href="guides/USER_GUIDE.html">Guide</a><a href="#downloads">Downloads</a><a href="https://valleytechsolutions.tech/pages/firmware-flashers" target="_top">All flashers ↗</a></nav>
   </header>
   <main id="main">
@@ -24,16 +24,16 @@
         <p class="eyebrow"><span class="status-dot"></span> STANDALONE · PASSIVE · OPEN SOURCE</p>
         <h1>Follow the<br><span>radio trail.</span></h1>
         <p class="lead">Wi-Fi, BLE and LoRa observations in one handheld. Start a drive, keep local logs, or switch to Recon to explore the evidence around you.</p>
-        <div class="actions"><a class="button primary" href="#install">Install the beta <span aria-hidden="true">↗</span></a><a class="button secondary" href="guides/USER_GUIDE.html">Meet LORA Tunnel</a></div>
+        <div class="actions"><a class="button primary" href="#install">Install LORA Tunnel <span aria-hidden="true">↗</span></a><a class="button secondary" href="guides/USER_GUIDE.html">Meet LORA Tunnel</a></div>
         <p class="hardware-line">Heltec Expansion Kit <strong>V2 / V4-R8</strong><br>Cardputer <strong>ADV + Cap LoRa-1262 (U214)</strong></p>
       </div>
-      <div class="hero-art"><img class="radio-logo" src="assets/logo.png" alt="Green handheld radio above the LORA Tunnel wordmark" width="420" height="420"><div class="frequency"><span>YOUR REGION, YOUR RECEIVE PROFILE</span><strong>LoRa <small>regional LongFast</small></strong><span>FIRST RUN: LORA OFF UNTIL SELECTED</span></div></div>
+      <div class="hero-art"><img class="radio-logo" src="assets/logo.png" alt="Green handheld radio above the LORA Tunnel wordmark" width="420" height="420"><div class="frequency"><span>YOUR REGION, YOUR RECEIVE PROFILE</span><strong>LoRa <small>Meshtastic + MeshCore</small></strong><span>FIRST RUN: LORA OFF UNTIL SELECTED</span></div></div>
     </section>
-    <div class="wrap"><aside class="beta-notice"><span class="beta">BETA</span><p><strong>Choose your board to see its release and validation status.</strong> The published Heltec 0.3.0-beta.1 remains unchanged. Cardputer ADV 0.4.0-beta.1 is a public beta for U214, with factory and Launcher downloads. See its measured results and remaining validation limits. <a href="guides/CARDPUTER_RELEASE.html">Cardputer acceptance checklist ↗</a> · <a href="targets/heltec-v4-r8-tft-high-band/guides/VALIDATION.html">Heltec evidence ↗</a></p></aside></div>
+    <div class="wrap"><aside class="release-notice"><span class="release-badge">0.5.0</span><p><strong>Choose your board to see its release and validation status.</strong> Version 0.5.0 adds local Meshtastic decoding, MeshCore public announcements and combined receive profiles on both boards. Cardputer includes separate factory and Launcher downloads. See the release record for measured results and remaining checks. <a href="guides/RELEASE_0_5_0.html">Release notes and validation ↗</a> · <a href="targets/heltec-v4-r8-tft-high-band/guides/VALIDATION.html">Heltec evidence ↗</a></p></aside></div>
     <section class="section wrap" id="modes">
       <div class="section-heading"><p class="eyebrow">01 / TWO WAYS IN</p><h2>Drive first.<br>Inspect when you want.</h2></div>
       <div class="mode-grid">
-        <article class="mode-card"><span class="mode-number">01</span><p class="tag">PRIMARY MODE</p><h3>Wardriver</h3><p>Separate Wi-Fi, BLE and LoRa views. Time-stamped observations, available receiver GPS, raw radio evidence and versioned sessions on microSD.</p><ul><li>2.4 GHz Wi-Fi AP observations</li><li>Passive BLE advertisements</li><li>Choose a regional LoRa receive profile</li><li>Start, Stop + Save, and offline export</li></ul></article>
+        <article class="mode-card"><span class="mode-number">01</span><p class="tag">PRIMARY MODE</p><h3>Wardriver</h3><p>Separate Wi-Fi, BLE and LoRa views. Time-stamped observations, available receiver GPS, raw radio evidence and versioned sessions on microSD.</p><ul><li>2.4 GHz Wi-Fi AP observations</li><li>Passive BLE advertisements</li><li>Meshtastic, MeshCore or combined reception</li><li>Start, Stop + Save, and offline export</li></ul></article>
         <article class="mode-card recon"><span class="mode-number">02</span><p class="tag">EVIDENCE VIEW</p><h3>Recon</h3><p>Passive Wi-Fi/BLE matches, category filters and readable evidence grades. Bounded buzzer alerts and optional SD rules help you choose what matters.</p><ul><li>Matched results, with evidence and confidence</li><li>iBeacon, Remote ID and supported signatures</li><li>Vendor/name matches stay candidates</li><li>LoRa reception stops in Recon</li></ul></article>
       </div>
       <p class="small-note">A signature is evidence, not proof of a product, recording activity or identity. Randomized BLE addresses are temporary. Recon captures no Bluetooth connections and transmits no LoRa packets.</p>
@@ -55,18 +55,18 @@
     <section class="section wrap" id="install">
       <div class="section-heading"><p class="eyebrow">03 / CONNECT & INSTALL</p><h2>Choose your hardware.<br>Install its firmware.</h2></div>
       <div class="install-grid">
-        <div><p class="lead compact">Choose the exact board and expansion fitted to your device.</p><p><strong>Heltec:</strong> Expansion Kit V2 with V4-R8, 863–928 MHz radio hardware. The published 0.3.0-beta.1 image remains unchanged.</p><p><strong>Cardputer:</strong> Cardputer ADV with M5Stack Cap LoRa-1262 (U214), 868–923 MHz radio hardware and onboard GNSS. This target uses the physical keyboard and 240 × 135 landscape screen.</p><p>Use desktop Chrome or Edge over HTTPS and a USB data cable. Close serial monitors and other flashers. The installer identifies ESP32-S3; it cannot distinguish these boards or identify the fitted radio cap.</p><div class="link-list"><a href="guides/CARDPUTER_ADV.html">Cardputer ADV + U214 guide ↗</a><a href="guides/CARDPUTER_RELEASE.html">Cardputer validation and release status ↗</a><a href="targets/heltec-v4-r8-tft-high-band/guides/USER_GUIDE.html">Published Heltec 0.3.0 guide ↗</a></div><p class="small-note">Fresh installations start with LoRa off. Select a supported region on the device or skip LoRa for Wi-Fi/BLE capture. Original Cardputer and other caps are separate hardware.</p></div>
+        <div><p class="lead compact">Choose the exact board and expansion fitted to your device.</p><p><strong>Heltec:</strong> Expansion Kit V2 with V4-R8, 863–928 MHz radio hardware. Use the dedicated Heltec image.</p><p><strong>Cardputer:</strong> Cardputer ADV with M5Stack Cap LoRa-1262 (U214), 868–923 MHz radio hardware and onboard GNSS. This target uses the physical keyboard and 240 × 135 landscape screen.</p><p>Use desktop Chrome or Edge over HTTPS and a USB data cable. Close serial monitors and other flashers. The installer identifies ESP32-S3; it cannot distinguish these boards or identify the fitted radio cap.</p><div class="link-list"><a href="guides/CARDPUTER_ADV.html">Cardputer ADV + U214 guide ↗</a><a href="guides/RELEASE_0_5_0.html">Release status and known limitations ↗</a><a href="targets/heltec-v4-r8-tft-high-band/guides/USER_GUIDE.html">Heltec controls and setup ↗</a></div><p class="small-note">Fresh installations start with LoRa off. Select a supported region on the device or skip LoRa for Wi-Fi/BLE capture. Original Cardputer and other caps are separate hardware.</p></div>
         <div class="install-panel">
           <div class="installer-brand"><img src="assets/logo.png" alt="LORA Tunnel green radio logo" width="96" height="96"><div><strong>LORA Tunnel</strong><span>Standalone wardriving firmware</span></div></div>
-          <label class="target-picker" for="target-select">Hardware</label><select id="target-select"><option value="heltec-v4-r8-tft-high-band">Heltec Expansion V2 / V4-R8 · 0.3.0-beta.1</option><option value="cardputer-adv-lora1262">Cardputer ADV + Cap LoRa-1262 · 0.4.0-beta.1</option></select>
-          <div class="panel-head"><span class="status-dot"></span><strong id="target-version">Choose hardware</strong><span class="beta">BETA</span></div>
+          <label class="target-picker" for="target-select">Hardware</label><select id="target-select"><option value="heltec-v4-r8-tft-high-band">Heltec Expansion V2 / V4-R8 · 0.5.0</option><option value="cardputer-adv-lora1262">Cardputer ADV + Cap LoRa-1262 · 0.5.0</option></select>
+          <div class="panel-head"><span class="status-dot"></span><strong id="target-version">Choose hardware</strong><span class="release-badge">0.5.0</span></div>
           <p class="target"><span id="target-name">Checking target…</span><br><span id="target-memory"></span></p><p id="target-state" class="small-note"></p>
           <p class="warning">Factory installation replaces the current firmware, including Launcher. Back up saved settings and SD files first. Read the selected hardware guide. Leave Erase device unchecked unless you have a verified complete recovery backup. To keep Launcher, install the application-only download through Launcher's SD menu instead.</p>
           <label class="confirm"><input id="confirm-target" type="checkbox"><span id="confirm-label">I checked my hardware and read its recovery instructions.</span></label>
           <p id="install-status" role="status" aria-live="polite">Checking release metadata…</p>
           <div id="installer" hidden>
             <esp-web-install-button id="install-button" manifest="firmware/manifest.json">
-              <button class="button primary install-button" slot="activate">Connect & install beta <span aria-hidden="true">↗</span></button>
+              <button class="button primary install-button" slot="activate">Connect & install firmware <span aria-hidden="true">↗</span></button>
               <p slot="unsupported">This browser does not expose Web Serial. Open the direct installer in desktop Chrome or Edge, or use the manual guide.</p>
               <p slot="not-allowed">USB access is unavailable in this context. Open the direct installer over HTTPS.</p>
             </esp-web-install-button>
@@ -81,7 +81,7 @@
     <section class="section wrap" id="start">
       <div class="section-heading"><p class="eyebrow">04 / FIRST SESSION</p><h2>Card in. Mode selected.<br>Start observing.</h2></div>
       <ol class="steps"><li><span>1</span><h3>Prepare microSD</h3><p>Copy the supplied <code>lora-tunnel</code> folder to a FAT32 card. Rename <code>config.example.json</code> to <code>config.json</code>. The sample contains no credentials.</p></li><li><span>2</span><h3>Region, then Wardriver</h3><p>Select a region or Skip LoRa for Wi-Fi/BLE only. Start Drive begins a local session; missing GPS remains explicit.</p></li><li><span>3</span><h3>Save before shutdown</h3><p>Stop + Save closes the session. Settings → Power saves before sleep. Follow the selected board guide to wake or restart. Keep the native logs for export.</p></li></ol>
-      <p class="small-note">WiGLE CSV export needs fresh valid GPS and UTC; observations without them remain in native logs. WDGWars mesh export additionally requires decoded, trustworthy node fields that this beta does not yet produce. <a href="guides/EXPORTS.html">Export rules ↗</a></p>
+      <p class="small-note">WiGLE CSV export needs fresh valid GPS and UTC; observations without them remain in native logs. WDGWars mesh ingestion remains a separate, unverified integration; decoded fields are preserved in native logs. <a href="guides/EXPORTS.html">Export rules ↗</a></p>
     </section>
     <section class="section wrap" id="downloads">
       <div class="section-heading"><p class="eyebrow">05 / YOUR FILES, YOUR BUILD</p><h2>Download. Inspect.<br>Make it yours.</h2></div>
@@ -96,8 +96,8 @@
       <p class="small-note"><a id="download-relink" href="@@GITHUB@@/releases">Matching dependency-source and relinking package ↗</a> · <a href="guides/RELINKING.html">Sources, licenses and rebuild materials ↗</a></p>
       <div class="actions"><a class="button secondary" href="@@GITHUB@@" target="_blank" rel="noopener">Source on GitHub ↗</a><a class="button secondary" href="@@GITEA@@" target="_blank" rel="noopener">Source on Gitea ↗</a><a class="button secondary" href="guides/USER_GUIDE.html">User guide ↗</a></div>
     </section>
-    <section class="section wrap credits" id="credits"><p class="eyebrow">BUILT IN THE OPEN</p><h2>Independent project.<br>Shared foundations.</h2><p>LORA Tunnel is by Valleytech Custom Solutions / Your Pal Kal. Original project code is MIT licensed; third-party components retain their own licenses. Dragon Detector provides the imported Recon parser subset and its inherited ESP32Marauder/Flock Noir credits. OpenDroneID supplies the Apache-2.0 decoder. LoRaPipe, Kismet and Meshtastic informed protocol research; their application code is not bundled as a complete port.</p><p>The browser installer uses <a href="https://github.com/esphome/esp-web-tools">ESPHome’s ESP Web Tools 10.4.0</a>, self-hosted with its Apache-2.0 notice. Heltec and M5Stack are the hardware manufacturers; this is independent firmware.</p><div class="link-list"><a href="guides/THIRD_PARTY.html">Full source credits and licenses ↗</a><a href="LICENSE.txt">Project MIT license ↗</a><a href="vendor/esp-web-tools-10.4.0/LICENSE">ESP Web Tools license ↗</a></div></section>
+    <section class="section wrap credits" id="credits"><p class="eyebrow">BUILT IN THE OPEN</p><h2>Independent project.<br>Shared foundations.</h2><p>LORA Tunnel is by Valleytech Custom Solutions / Your Pal Kal. Original project code is MIT licensed; third-party components retain their own licenses. Dragon Detector provides the imported Recon parser subset and its inherited ESP32Marauder/Flock Noir credits. OpenDroneID supplies the Apache-2.0 decoder. LoRaPipe, Kismet, Meshtastic and MeshCore informed protocol research; their application code is not bundled as a complete port.</p><p>The browser installer uses <a href="https://github.com/esphome/esp-web-tools">ESPHome’s ESP Web Tools 10.4.0</a>, self-hosted with its Apache-2.0 notice. Heltec and M5Stack are the hardware manufacturers; this is independent firmware.</p><div class="link-list"><a href="guides/THIRD_PARTY.html">Full source credits and licenses ↗</a><a href="LICENSE.txt">Project MIT license ↗</a><a href="vendor/esp-web-tools-10.4.0/LICENSE">ESP Web Tools license ↗</a></div></section>
   </main>
-  <footer class="wrap"><a class="brand" href="#">LORA TUNNEL <span class="beta">BETA</span></a><p>Keep the observations. Know the limits.</p><a href="https://valleytechsolutions.tech/pages/code-projects">More Valleytech projects ↗</a></footer>
+  <footer class="wrap"><a class="brand" href="#">LORA TUNNEL <span class="release-badge">0.5.0</span></a><p>Keep the observations. Know the limits.</p><a href="https://valleytechsolutions.tech/pages/code-projects">More Valleytech projects ↗</a></footer>
 </body>
 </html>

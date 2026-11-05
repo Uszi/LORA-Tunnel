@@ -4,12 +4,12 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const code = fs.readFileSync(require('node:path').join(__dirname, '../web/app.js'), 'utf8');
-const heltec = {channel:'beta',version:'0.3.0-beta.1',target:'heltec-v4-r8-tft-high-band',name:'Heltec',
+const heltec = {channel:'stable',version:'0.5.0',target:'heltec-v4-r8-tft-high-band',name:'Heltec',
   flash_bytes:16777216,psram_bytes:8388608,factory_sha256:'a'.repeat(64),factory_file:'heltec.bin',
   source_file:'heltec-source.zip',sd_file:'heltec-sd.zip',public_enabled:true,
   manifest:'firmware/heltec-v4-r8-tft-high-band/manifest.json',guide:'targets/heltec-v4-r8-tft-high-band/guides/USER_GUIDE.html',
-  relink_url:'https://github.com/valleytechsolutions/LORA-Tunnel/releases/download/v0.3.0-beta.1/relink.zip'};
-const card = {...heltec,version:'0.4.0-beta.1',target:'cardputer-adv-lora1262',name:'Cardputer',
+  relink_url:'https://github.com/valleytechsolutions/LORA-Tunnel/releases/download/v0.5.0/relink.zip'};
+const card = {...heltec,version:'0.5.0',target:'cardputer-adv-lora1262',name:'Cardputer',
   flash_bytes:8388608,psram_bytes:0,factory_file:'card.bin',app_file:'card-app.bin',app_sha256:'b'.repeat(64),
   public_enabled:false,manifest:'firmware/cardputer-adv-lora1262/manifest.json',guide:'targets/cardputer-adv-lora1262/guides/CARDPUTER_ADV.html'};
 const manifest = r => ({version:r.version,builds:[{chipFamily:'ESP32-S3',parts:[{offset:0,path:'../../downloads/'+r.factory_file}]}]});
@@ -30,9 +30,15 @@ async function run({targets=[heltec,card],local=false,host='example.test',search
   controls.confirm = () => {controls['confirm-target'].checked=true;controls['confirm-target'].change();};
   return controls;
 }
-test('Heltec requires confirmation and keeps its published version',async()=>{
+test('Heltec requires confirmation and selects the current release',async()=>{
   const c=await run();assert.equal(c['confirm-target'].checked,false);assert.equal(c.installer.hidden,true);
-  c.confirm();assert.equal(c.installer.hidden,false);assert.equal(c['target-version'].textContent,'0.3.0-beta.1');
+  c.confirm();assert.equal(c.installer.hidden,false);assert.equal(c['target-version'].textContent,'0.5.0');
+});
+test('old beta metadata cannot enable the current installer',async()=>{
+  for(const change of [{channel:'beta'},{version:'0.3.0-beta.1'}]) {
+    const c=await run({targets:[{...heltec,...change},card]});c.confirm();
+    assert.equal(c.installer.hidden,true);
+  }
 });
 test('board change resets confirmation and installs the selected manifest',async()=>{
   const c=await run({targets:[heltec,{...card,public_enabled:true}]});c.confirm();

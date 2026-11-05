@@ -4,8 +4,8 @@
   const selector = el("target-select"), confirm = el("confirm-target");
   const installer = el("installer"), status = el("install-status");
   const targets = {
-    "heltec-v4-r8-tft-high-band": {flash: 16777216, psram: 8388608, version: "0.3.0-beta.1"},
-    "cardputer-adv-lora1262": {flash: 8388608, psram: 0, version: "0.4.0-beta.1"}
+    "heltec-v4-r8-tft-high-band": {flash: 16777216, psram: 8388608, version: "0.5.0", channel: "stable"},
+    "cardputer-adv-lora1262": {flash: 8388608, psram: 0, version: "0.5.0", channel: "stable"}
   };
   let catalog, ready = false, selection = 0, reason = "Checking release metadata…";
   const localAcceptance = () => ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname) &&
@@ -29,7 +29,7 @@
     try {
       const r = catalog.targets.find(t => t.target === selector.value);
       const board = targets[r?.target];
-      if (!board || r.version !== board.version || r.channel !== "beta" ||
+      if (!board || r.version !== board.version || r.channel !== board.channel ||
           r.flash_bytes !== board.flash || r.psram_bytes !== board.psram ||
           !hash(r.factory_sha256) || !safeName(r.factory_file) ||
           !safeName(r.source_file) || !safeName(r.sd_file) ||
@@ -59,9 +59,9 @@
       if (relink.origin !== "https://github.com" || !relink.pathname.startsWith("/valleytechsolutions/LORA-Tunnel/releases/download/") || relink.search || relink.hash) throw new Error("Dependency source URL mismatch");
       el("download-relink").href = r.relink_url;
       const permitted = r.public_enabled === true || localAcceptance();
-      el("target-state").textContent = r.public_enabled ? "Public beta · see the hardware-specific validation notes" : "Hardware acceptance pending · local test preparation";
+      el("target-state").textContent = r.public_enabled ? "Release " + r.version + " · see validation and known limitations" : "Hardware acceptance pending · local test preparation";
       if (!permitted) {
-        reason = "Cardputer installation is awaiting physical hardware acceptance. The published Heltec release remains available.";
+        reason = "Installation is awaiting physical hardware acceptance or release authorization for this target.";
         refresh();
         return;
       }

@@ -1,6 +1,6 @@
 # Offline exports and upload contract research
 
-This page covers the standalone offline exporter and the original mesh-candidate research. The 0.4 firmware's separate [idle-only uploader](UPLOADS.md) sends eligible Wi-Fi/BLE CSV to WiGLE, Wardrift or WDGWars. WDGWars CSV upload is distinct from the mesh-candidate JSON described here; full mesh payload decoding remains incomplete.
+This page covers the standalone offline exporter and the original mesh-candidate research. The firmware's separate [idle-only uploader](UPLOADS.md) sends eligible Wi-Fi/BLE CSV to WiGLE, Wardrift or WDGWars. WDGWars CSV upload is distinct from the mesh-candidate JSON described here; the new on-device decoding fields do not by themselves establish mesh-export eligibility or live ingestion acceptance. See [supported mesh decoding](COMBINED_MESH.md).
 
 Checked on 2026-11-01. These tools produce local files and make no network
 requests. Host tests establish formatting and rejection behavior; they do not

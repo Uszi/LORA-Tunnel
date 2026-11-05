@@ -38,12 +38,33 @@ def factory(app=None):
 
 
 class CardputerPackageChecks(unittest.TestCase):
-    def test_development_validation_does_not_bypass_beta_packaging(self):
+    def test_development_validation_does_not_bypass_release_packaging(self):
         version = "0.5.0-dev"
         data, app = factory(image(b"cardputer-adv-lora1262\0" + version.encode() + b"\0"))
         self.assertEqual(package.validate_factory(data, version, app), app)
-        with self.assertRaisesRegex(ValueError, "Expected beta version"):
+        with self.assertRaisesRegex(ValueError, "release version"):
             package.package(None, None, version)
+
+    def test_release_channels_reject_development_and_unsafe_versions(self):
+        self.assertEqual(package.release_channel("0.5.0"), "stable")
+        self.assertEqual(package.release_channel("0.4.0-beta.1"), "beta")
+        for value in ("0.5.0-dev", "v0.5.0", "00.5.0", "0.5.0/other", "0.5.0\n", None):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                package.release_channel(value)
+
+    def test_stable_publication_binds_version_target_and_disclosed_limits(self):
+        record = {"target": "heltec-v4-r8-tft-high-band", "version": "0.5.0",
+                  "result": "scoped-release", "factory_sha256": "a" * 64,
+                  "app_sha256": "b" * 64, "publication_authorized": True,
+                  "authorized_at": "2026-11-05", "software_checks_passed": True,
+                  "usb_application_verified": True, "unverified_checks": ["Live MeshCore packet"]}
+        args = {"target": record["target"], "version": "0.5.0"}
+        self.assertEqual(package.validate_publication(record, "a"*64, "b"*64, **args), "scoped-release")
+        for key, value in (("version", "0.4.0"), ("result", "scoped-beta"),
+                           ("target", package.TARGET), ("unverified_checks", []),
+                           ("usb_application_verified", False), ("publication_authorized", False)):
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                package.validate_publication(dict(record, **{key:value}), "a"*64, "b"*64, **args)
 
     def test_matching_factory_and_relocatable_app(self):
         data, app = factory()

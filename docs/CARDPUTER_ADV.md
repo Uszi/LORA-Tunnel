@@ -1,9 +1,6 @@
 # Cardputer ADV + Cap LoRa-1262
 
-LORA Tunnel **0.4.0-beta.1** adds a dedicated `cardputer-adv-lora1262` build for
-**M5Stack Cardputer ADV with Cap LoRa-1262 (U214)**. This is a public beta with scoped hardware validation;
-see [the exact checks and remaining limits](CARDPUTER_SOFTWARE_VALIDATION.md). The existing Heltec
-0.3.0-beta.1 release remains available unchanged.
+LORA Tunnel **0.5.0** supports **M5Stack Cardputer ADV with Cap LoRa-1262 (U214)** through the dedicated `cardputer-adv-lora1262` build. It includes Meshtastic, MeshCore and combined receive modes. See the [current release record](RELEASE_0_5_0.md), [mesh guide](COMBINED_MESH.md) and [earlier Cardputer validation](CARDPUTER_SOFTWARE_VALIDATION.md).
 
 The target uses ESP32-S3, **8 MB flash, no PSRAM**, the 240 × 135 landscape
 display, ADV keyboard, microSD, speaker and battery support. U214 supplies
@@ -109,7 +106,7 @@ be recorded with physical acceptance; host checks alone do not certify it.
 
 ```sh
 python -m platformio run -e cardputer-adv-lora1262
-python tools/package_cardputer.py --build .pio/build/cardputer-adv-lora1262 --output dist/cardputer-check --version 0.4.0-beta.1
+python tools/package_cardputer.py --build .pio/build/cardputer-adv-lora1262 --output dist/cardputer-check --version 0.5.0
 ```
 
 The pinned default_8MB partition table gives app0/app1 **0x330000 bytes each**.
@@ -151,18 +148,6 @@ pass acceptance.
 
 ## Validation status
 
-HW9 has passed its software/build checks and is installed by an independently
-verified USB application update. A short read-only boot observation confirmed
-the expected target, initialized input/audio/cap/LoRa and stopped operation,
-with no allocation failure or error-counter growth. Storage was not mounted;
-its stable missing-storage error and boot memory readings are not capture,
-storage, TLS or physical UI/audio acceptance. See the
-[validation checkpoint](CARDPUTER_SOFTWARE_VALIDATION.md) for exact hashes and
-scopes. Historical HW7 save/navigation, short capture and copied-session
-results remain attributed to HW7.
+The current release is documented in [RELEASE_0_5_0.md](RELEASE_0_5_0.md). Earlier HW7–HW11 measurements remain in the [0.4 validation record](CARDPUTER_SOFTWARE_VALIDATION.md), with their original scope and hashes.
 
-Launcher install/return, exact candidate factory/web installation, sustained
-interactive operation, fresh-fix/known-source evidence, power/wake and live
-upload behavior remain unverified. Further SD fault testing was canceled and
-is not an upcoming task. The [publication checklist](CARDPUTER_RELEASE.md)
-remains unchanged. Heltec results do not establish Cardputer hardware behavior.
+Physical Launcher installation/return, browser factory flashing, sustained interactive operation, GPS-valid saved observations, power/wake and live upload receipts remain unverified on 0.5.0. Further destructive SD-card testing is outside this release work. Heltec results do not establish Cardputer hardware behavior.

@@ -1,6 +1,6 @@
 # Combined mesh development validation — 2026-11-05
 
-Version: **0.5.0-dev**, branch `codex/combined-mesh-decoding`. This is a local development checkpoint, not a published release. The Heltec installation and idle check below are limited physical evidence; live decoder and combined-scanning acceptance remain pending.
+Version: **0.5.0-dev**, branch `codex/combined-mesh-decoding`. This is a local development checkpoint, not a published release. The records below cover installation, live Meshtastic decoder counters, combined-profile switching and saved-mode restart behavior. Controlled MeshCore reception remains unverified.
 
 ## Completed software checks
 
@@ -20,7 +20,7 @@ Version: **0.5.0-dev**, branch `codex/combined-mesh-decoding`. This is a local d
 | Schemas and shipped examples | 3 schemas and 9 example documents/records validated |
 | Generated image validation | Heltec factory and Cardputer factory/Launcher images passed layout, identity, integrity and version checks |
 
-Cryptographic interoperability checks use NIST AES-128/AES-256 CTR vectors, an independently generated encrypted Meshtastic NodeInfo packet and a signed synthetic MeshCore advert. The actual parsers run against pinned rweather AES/Ed25519 on the host. Tests reject altered keys, signatures, timestamps and names, identity/low-order point forgeries and noncanonical scalars. Mutable relay paths remain outside the signed advert data. The ESP32 build uses SDK mbedTLS for AES; its actual execution on hardware remains unverified by the host fixture.
+Cryptographic interoperability checks use NIST AES-128/AES-256 CTR vectors, an independently generated encrypted Meshtastic NodeInfo packet and a signed synthetic MeshCore advert. The actual parsers run against pinned rweather AES/Ed25519 on the host. Tests reject altered keys, signatures, timestamps and names, identity/low-order point forgeries and noncanonical scalars. Mutable relay paths remain outside the signed advert data. The ESP32 build uses SDK mbedTLS for AES. The later live Meshtastic observations exercise the device decoder path; the host fixture itself does not validate ESP32 execution.
 
 Mesh decoding and Recon classification share writer-record storage. Cardputer ingress records are 1,328 bytes and writer records 1,648 bytes; all 12 ingress and 8 writer slots remain available. The receive-profile snapshot adds 48 bytes per record. Tests preserve raw bytes, complete public-key identity for MeshCore deduplication and separate receiver/advertised coordinates. These sizes and linker results do not establish runtime heap, stack or latency headroom on a device.
 
@@ -40,19 +40,30 @@ The application-only image was written at `0x10000`; the flasher reported the er
 - Startup reported `0.5.0-dev`, target `heltec-v4-r8-tft`, ready with SD, touch controller and LoRa initialized. Forty-five consecutive polled statuses covered uptime 44,615–89,289 ms without reported errors, drops, allocation failures or reset diagnostics.
 - Idle free heap remained **101,448 bytes**, minimum internal free memory **100,676**, largest internal block **61,428**, loop stack watermark **4,444** and writer stack watermark **6,512**. These are an idle sample, not capture or decoder-load headroom measurements.
 - GNSS serial data advanced to **17,311 characters**; no position fix was observed in this window. This does not supersede previous working-GPS evidence or establish a new GPS fault.
-- The retained mode was Meshtastic-only: **906.875 MHz, BW 250 kHz, SF11, CR 4/5, sync 0x2B**. No capture was started in this idle check. Combined switching, on-screen acceptance, packet reception and decoding remain unverified on this build.
+- The retained mode was Meshtastic-only: **906.875 MHz, BW 250 kHz, SF11, CR 4/5, sync 0x2B**. No capture was started in this initial idle check.
 
-## Required physical acceptance
+## Subsequent Meshtastic observation
 
-No live capture, browser installation, GPS acquisition, upload receipt or drive was performed for this development checkpoint. Earlier firmware acceptance does not validate this decoder or scheduler.
+The user subsequently confirmed that the screen responds, that the Both / slow scan selection saved, and that Meshtastic decoded on the device. A later USB check at approximately 4,640 seconds uptime found the device stopped with **15 Meshtastic receptions**, **14 decoder successes**, **one other result**, **85,463 ms of Meshtastic listening time**, and zero reported drops, errors or allocation failures. The current mode at this later check was **Meshtastic-only**, with zero switches and zero MeshCore listening time. This records the observed mode without assuming why it differed from the earlier user report.
 
-Before publishing a new beta:
+These results provide live Meshtastic receive/decoder-path evidence on the installed application. No captured identities, messages, positions or credentials were printed. Packet fields have not been compared against a known transmitter's values, the SD session has not been read back, and the one other result has not been classified. Decoder success is not sender authentication. This first session does not verify a MeshCore reception or combined-profile switching. The next check isolates the combined-mode result.
 
-1. Retain the verified Heltec recovery files; identify and back up each additional target before installation. Preserve private SD configuration before editing it.
-2. Check known Meshtastic and MeshCore transmitters separately with their exact radio settings; compare names, positions and raw packets.
-3. Repeat in combined mode, including packet reception at a scheduled switch and long quiet intervals.
-4. Check Settings mode save/reboot behavior, stop/start, shared SD writes and hardware compatibility on both targets.
-5. Measure decoder/verification latency, input responsiveness, queue drops and runtime heap/stack headroom during sustained capture.
-6. Verify GNSS loss/staleness, full/missing storage and orderly shutdown without substituting advertised positions for receiver fixes.
+## Subsequent combined-mode check
 
-The remaining protocol and integration gaps are listed in [COMBINED_MESH.md](COMBINED_MESH.md#capability-and-validation-ledger). Passing these software checks does not establish full Kismet/LoRaPipe feature parity.
+After the user reselected Both / slow scan, USB telemetry confirmed mode 2 and both receive profiles. A short capture recorded **four profile switches**, **77,735 ms on Meshtastic**, **60,006 ms on MeshCore**, **three Meshtastic receptions and three decoder successes**, with no MeshCore receptions. The profiles were Meshtastic 906.875 MHz / 250 kHz / SF11 / CR4/5 / sync 0x2B and MeshCore 910.525 MHz / 62.5 kHz / SF7 / CR4/5 / sync 0x12.
+
+The firmware reported zero switch deferrals, receive timeouts, forced interruptions, queue drops, errors or allocation failures. The same session accumulated 297 Wi-Fi and 4,038 BLE observations. Minimum internal free memory was 96,008 bytes; the largest block was 59,380 bytes, with loop and writer stack watermarks of 3,768 and 4,976 bytes. Stop completed with capture stopped, saving finished, storage ready and no upload active. Both / slow scan remained selected after reboot and the later application-only 0.5.0 update.
+
+These are firmware counters from the development image identified above, not an independent RF measurement. No known MeshCore transmitter was available. Profile initialization and scheduled listening do not establish MeshCore packet reception. No private packet contents or coordinates are included here.
+
+## Remaining physical checks
+
+Final 0.5.0 image installation, Cardputer navigation and its combined-capture results are recorded separately in [RELEASE_0_5_0.md](RELEASE_0_5_0.md). Further testing should cover:
+
+1. Known Meshtastic and MeshCore transmitters with exact radio settings, comparing decoded fields and saved raw packets.
+2. Packets that cross a scheduled profile switch, plus extended quiet intervals and sustained captures.
+3. Independent SD-session/geotag readback and measured decoder/signature latency under load.
+4. Browser and Launcher installation, return to Launcher, and board-specific power behavior.
+5. GNSS loss/staleness, storage faults and live upload receipts.
+
+The protocol and integration limits are listed in [COMBINED_MESH.md](COMBINED_MESH.md#capability-and-validation-ledger). These results do not establish full Kismet/LoRaPipe feature parity.

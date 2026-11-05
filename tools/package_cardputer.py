@@ -111,22 +111,38 @@ def validate_acceptance(record, factory_sha, app_sha):
             "Hardware acceptance needs test date and Launcher version")
 
 
-def validate_publication(record, factory_sha, app_sha):
-    """Keep full acceptance distinct from an explicitly authorized scoped beta."""
-    if record.get("result") != "scoped-beta":
+def release_channel(version):
+    """Accept numbered releases; development builds cannot be published."""
+    number = r"(?:0|[1-9][0-9]*)"
+    if not isinstance(version, str) or not re.fullmatch(
+            rf"{number}\.{number}\.{number}(?:-beta\.{number})?", version):
+        raise ValueError("Expected a stable or numbered beta release version")
+    return "beta" if "-beta." in version else "stable"
+
+
+def validate_publication(record, factory_sha, app_sha, *, target=TARGET, version=None):
+    """Bind publication approval to artifacts without implying full acceptance."""
+    result = record.get("result")
+    if result not in ("scoped-beta", "scoped-release"):
+        require(target == TARGET, "This target requires a scoped publication record")
         validate_acceptance(record, factory_sha, app_sha)
         return "passed"
-    require(record.get("target") == TARGET, "Scoped beta target mismatch")
+    require(record.get("target") == target, "Publication target mismatch")
     require(record.get("factory_sha256") == factory_sha and record.get("app_sha256") == app_sha,
-            "Scoped beta authorization does not match the packaged firmware")
+            "Publication authorization does not match the packaged firmware")
+    if result == "scoped-release":
+        require(version is not None and release_channel(version) == "stable" and
+                record.get("version") == version, "Stable publication version mismatch")
+    elif version is not None:
+        require(release_channel(version) == "beta", "Beta authorization cannot publish a stable release")
     require(record.get("publication_authorized") is True and bool(record.get("authorized_at")),
-            "Scoped beta needs explicit publication authorization")
+            "Publication needs explicit authorization")
     require(record.get("software_checks_passed") is True and record.get("usb_application_verified") is True,
-            "Scoped beta needs verified software and USB application evidence")
+            "Publication needs verified software and USB application evidence")
     limits = record.get("unverified_checks")
     require(isinstance(limits, list) and bool(limits) and all(isinstance(x, str) and x.strip() for x in limits),
-            "Scoped beta must disclose unverified checks")
-    return "scoped-beta"
+            "Publication must disclose unverified checks")
+    return result
 
 
 def validate_build(build, version):
@@ -146,7 +162,7 @@ def validate_build(build, version):
 
 
 def package(build, output, version):
-    require(bool(re.fullmatch(r"\d+\.\d+\.\d+-beta\.\d+", version)), "Expected beta version")
+    release_channel(version)
     app, factory = validate_build(build, version)
     require(not output.exists() or not any(output.iterdir()), "Choose an empty output directory")
     output.mkdir(parents=True, exist_ok=True)
@@ -172,7 +188,7 @@ if __name__ == "__main__":
     parser.add_argument("--build", type=Path, default=Path(".pio/build") / TARGET)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--version")
-    parser.add_argument("--check-only", action="store_true", help="Validate current-source development or beta images without packaging/publication")
+    parser.add_argument("--check-only", action="store_true", help="Validate current-source images without packaging/publication")
     args = parser.parse_args()
     version = args.version
     if version is None:

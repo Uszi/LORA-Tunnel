@@ -1,137 +1,95 @@
 # LORA Tunnel
 
-**BETA · Cardputer ADV 0.4.0-beta.1 · Heltec published 0.3.0-beta.1**
+**Version 0.5.0 · MIT open source**
 
-**Development branch: 0.5.0-dev combined mesh reception.** Current source adds a Meshtastic / MeshCore / Both selector, slow profile switching, local Meshtastic node/position/text/device-telemetry decoding and MeshCore public-advert decoding with signature verification. Raw packets and receive settings remain in each SD record. This development work does not update the published binaries or web installer. Known encryption/protocol gaps and physical acceptance checks are recorded in the [combined mesh guide](docs/COMBINED_MESH.md).
+LORA Tunnel turns a supported handheld into a standalone Wi-Fi, Bluetooth Low Energy and LoRa wardriving recorder. It captures radio observations, adds receiver time and location when GNSS provides them, and saves sessions to microSD for later review and export. A separate Recon mode groups supported Wi-Fi/BLE indicators and provides optional audible alerts.
 
-LORA Tunnel provides a handheld field terminal for the [Heltec WiFi LoRa 32 Expansion Kit V2 / V4-R8](https://heltec.org/project/v4-r8-ex/) and a dedicated [Cardputer ADV + Cap LoRa-1262 (U214) build](docs/CARDPUTER_ADV.md). Its primary **Wardriver** mode records nearby radio observations to microSD. A separate passive **Recon** mode presents matched indicators, their evidence and optional buzzer alerts. Capture runs on the device without a laptop, phone or Kismet server.
+The firmware runs on **Heltec WiFi LoRa 32 Expansion Kit V2 / V4-R8** and **M5Stack Cardputer ADV with Cap LoRa-1262 (U214)**. Each board has its own binary. Capture runs on the handheld without a laptop, phone or Kismet server.
 
-**Cardputer ADV 0.4.0-beta.1 is a public beta with scoped hardware validation.** It has a compact 240 × 135 keyboard interface, U214 LoRa/GNSS support, an 8 MB/no-PSRAM profile and separately packaged factory/Launcher binaries. [Cardputer setup and controls](docs/CARDPUTER_ADV.md) · [Acceptance and release checklist](docs/CARDPUTER_RELEASE.md).
+[Install with the web flasher](https://valleytech-lora-tunnel.pages.dev/) · [Download 0.5.0](https://github.com/valleytechsolutions/LORA-Tunnel/releases/tag/v0.5.0) · [Project website](https://valleytechsolutions.tech/pages/lora-tunnel) · [Gitea distribution](https://git.churchofmalware.org/Valleytech/LORA-Tunnel)
 
-**Published Heltec 0.3.0-beta.1 remains unchanged.** Its GPS fix and short Wi-Fi/BLE capture were measured on the actual Heltec; region saving, logo, power Cancel/sleep and USER wake also have scoped user confirmation. Restart retention, independent geotagged SD readback and sustained-drive acceptance remain separate. These results do not certify Cardputer hardware. [Versioned Heltec evidence](docs/VALIDATION.md).
+## What changed in 0.5.0
 
-| Home | Wardriver | Recon |
+Wardriver can now listen to **Meshtastic**, **MeshCore**, or alternate between both. Meshtastic decoding includes supported node information, positions, ordinary text and device battery/voltage telemetry. MeshCore decoding includes public node announcements and Ed25519 signature verification. Every LoRa observation retains its raw bytes and the radio settings used to receive it.
+
+Combined mode uses one selected profile per protocol and a default 30-second dwell. The SX1262 receives one configuration at a time; it cannot monitor both protocols simultaneously or hear traffic on every preset. Existing configurations remain Meshtastic-only until the user changes the mode. [Supported fields, settings and limits](docs/COMBINED_MESH.md) · [Release notes](docs/RELEASE_0_5_0.md).
+
+## Supported hardware
+
+| Target | Required hardware | Interface and memory |
 | --- | --- | --- |
-| ![Home interface render](assets/ui/home.png) | ![Wardriver interface render](assets/ui/wardriver.png) | ![Recon interface render](assets/ui/recon.png) |
+| Heltec | [WiFi LoRa 32 Expansion Kit V2 / V4-R8](https://heltec.org/project/v4-r8-ex/), 863–928 MHz variant | 240 × 320 touchscreen, 16 MB flash, 8 MB PSRAM, onboard GNSS and microSD |
+| Cardputer | [Cardputer ADV](https://docs.m5stack.com/en/core/Cardputer-Adv) with [Cap LoRa-1262, U214](https://docs.m5stack.com/en/cap/Cap_LoRa-1262), 868–923 MHz | 240 × 135 display, physical keyboard, 8 MB flash, no PSRAM; cap supplies LoRa and GNSS |
 
-*These are renders of the actual UI drawing code with synthetic sample values, not device photos or captured networks. The renderer uses the firmware’s bitmap font; host rasterization can still differ from the device. [Interface views and rendering notes](assets/ui/README.md).* The green radio remains the project logo. The interface also displays the supplied official VTS logo in its upper-right header as a separate brand mark.
+The Heltec V1, low-band Heltec kits, original Cardputer and other M5Stack caps are separate hardware. Check the board and fitted radio before installing. [Heltec hardware notes](docs/HARDWARE.md) · [Cardputer setup](docs/CARDPUTER_ADV.md).
 
-[Cardputer factory BIN](https://github.com/valleytechsolutions/LORA-Tunnel/releases/download/v0.4.0-beta.1/LORA-Tunnel-0.4.0-beta.1-Cardputer-ADV-LoRa1262-FACTORY-0x0.bin) · [Cardputer Launcher application BIN](https://github.com/valleytechsolutions/LORA-Tunnel/releases/download/v0.4.0-beta.1/LORA-Tunnel-0.4.0-beta.1-Cardputer-ADV-LoRa1262-LAUNCHER-APP.bin) · [Release and checksums](https://github.com/valleytechsolutions/LORA-Tunnel/releases/tag/v0.4.0-beta.1)
+## Wardriver and Recon
 
-[GitHub source](https://github.com/valleytechsolutions/LORA-Tunnel) · [Web installer](https://valleytech-lora-tunnel.pages.dev/) · [Project page](https://valleytechsolutions.tech/pages/lora-tunnel)
+| Function | Behavior |
+| --- | --- |
+| Wi-Fi | Passive 2.4 GHz AP observations with BSSID, available SSID, channel, RSSI and security metadata. Current Wi-Fi scan channels are 1–11. |
+| BLE | Passive advertisements with address type, RSSI, available name and service/manufacturer data. Random addresses are not permanent device identities. |
+| LoRa | Receive-only Meshtastic/MeshCore profiles, local supported-payload decoding, RSSI/SNR, raw bytes, per-packet profile snapshots and slow switching. |
+| GNSS | Receiver UTC, fix validity, age and available quality information. Missing or stale coordinates remain explicit. Mesh-advertised positions are separate. |
+| Storage | Versioned JSONL sessions with bounded queues, checked buffered writes and visible drop/error counters. Repeated sightings remain in the log. |
+| Recon | Separate passive Wi-Fi/BLE evidence views, category filters, optional SD rules and once-per-device-per-session alerts. LoRa stops in Recon. |
+| Export/upload | Local WiGLE CSV export and optional idle-only WiGLE, Wardrift and WDGWars CSV uploads. Mesh export has a separate, limited contract. |
 
-[User guide](docs/USER_GUIDE.md) · [Web installer guide](docs/WEB_FLASHER.md) · [Prepare the SD card](sdcard/README.md) · [Recovery](docs/RECOVERY.md) · [Hardware](docs/HARDWARE.md)
+Wi-Fi and BLE share the ESP32-S3 radio and run on a schedule. A Recon match is an indicator, not proof of ownership, recording or identity. A relayed mesh packet does not establish that its original sender is nearby.
 
-## What the beta does
-
-| Area | Implemented | Current limit |
+| Heltec Home | Wardriver | Recon |
 | --- | --- | --- |
-| Wi-Fi | Passive 2.4 GHz AP observations: BSSID, available SSID, channel, RSSI and security metadata | US channels 1–11; no 5/6 GHz radio; Wi-Fi and BLE share scheduled radio time |
-| BLE | Passive advertisements with address type, RSSI and available names/service/manufacturer data | Random addresses are not permanent identities; scanning is time-sliced with Wi-Fi |
-| LoRa | Region choice; current development source adds combined Meshtastic/MeshCore reception, protocol-specific decoding, profile snapshots and slow hopping | One receive profile at a time; published releases retain header-only capture; see the [supported decoding scope](docs/COMBINED_MESH.md) |
-| Recon | Separate passive Wi-Fi/BLE mode, evidence grades, category filters, optional SD rules and [original once-per-session detection sounds](docs/ALERTS.md) in current source | Matches are indicators, not authenticated identity or proof of recording; LoRa is stopped in Recon |
-| GNSS | Validity/age handling, UTC when available, checksum/fix/satellite/antenna-status diagnostics | Fresh fix verified on 0.3.0-beta.1; repeated acquisition, loss/reacquisition and geotagged SD/export checks remain pending |
-| Storage | Versioned JSONL sessions, bounded queues, buffered writes and visible drop/error counters | Independent SD readback, interruption recovery and sustained-drive acceptance still need completion |
-| Exports | Host tools produce eligible WiGLE CSV rows and an unsigned WDGWars mesh candidate payload | WiGLE requires fresh receiver coordinates/UTC; the new decoded mesh log fields still need exporter/service acceptance work |
-| Credentials | SD configuration; Heltec touchscreen or Cardputer physical keyboard | Values remain plaintext on the SD card; public packages contain empty examples |
+| ![Heltec Home](assets/ui/home.png) | ![Heltec Wardriver](assets/ui/wardriver.png) | ![Heltec Recon](assets/ui/recon.png) |
 
-Short device checks have demonstrated display/touch initialization, SD mount, Wi-Fi/BLE observations, LoRa packet reception and session transitions. The user confirmed the separate Wardriver/Recon appearance, earlier flicker fix and subsequently working GPS; a later read-only device check confirmed a fresh fix. Those results do not establish every detection category, new physical-button/shutdown behavior, battery-only operation, upload support or drive-duration reliability. Exact build/test/device evidence and remaining checks are in [VALIDATION.md](docs/VALIDATION.md) and [TEST_CHECKLIST.md](docs/TEST_CHECKLIST.md).
-
-## Upload service preparation
-
-Cardputer 0.4 adds software for **WiGLE, Wardrift and WDGWars** using configured
-home Wi-Fi and **an explicit enable setting for each service**. Automatic work
-is restricted to idle periods: startup and after a saved capture, with retry
-while idle. Capture must be stopped and saving complete before upload work;
-starting capture takes priority. Enter WiGLE API name/token, Wardrift token or
-WDGWars token only for the services you choose. [Service setup, eligibility,
-retry behavior and current test status](docs/UPLOADS.md).
-
-Live service receipts remain unverified for this beta. Uploads are opt-in and
-run only while capture is stopped and saved; see the validation notes. The unchanged Heltec 0.3.0-beta.1 release has no uploader.
-
-## Cardputer ADV target
-
-| Home | Wardriver | Recon |
+| Cardputer Home | Wardriver | Recon |
 | --- | --- | --- |
-| ![Cardputer Home source preview](assets/ui/cardputer/home.png) | ![Cardputer Wardriver source preview](assets/ui/cardputer/wardriver.png) | ![Cardputer Recon source preview](assets/ui/cardputer/recon.png) |
+| ![Cardputer Home](assets/ui/cardputer/home.png) | ![Cardputer Wardriver](assets/ui/cardputer/wardriver.png) | ![Cardputer Recon](assets/ui/cardputer/recon.png) |
 
-These are source-rendered synthetic previews, not photographs or physical acceptance evidence.
+These interface previews are rendered from the drawing code with synthetic data. They are not photographs or recorded networks. [Interface guide](docs/UI_GUIDE.md) · [Preview details](assets/ui/README.md).
 
-Build with `python -m platformio run -e cardputer-adv-lora1262`. Follow the
-[Cardputer guide](docs/CARDPUTER_ADV.md) for keyboard controls, U214 setup,
-region selection, microSD, factory installation and Launcher installation.
-The original Cardputer and other caps are not this target. This beta has verified USB application installation and short capture checks;
-physical Launcher installation, exact factory/web flashing, battery/sleep/wake,
-sustained interactive capture and live upload receipts remain unverified.
+## Install and start a session
 
-## Heltec hardware and first start
+1. Identify the exact board and retain its current recovery image. Read the [Heltec recovery procedure](docs/RECOVERY.md) or [Cardputer installation guide](docs/CARDPUTER_ADV.md).
+2. Prepare a FAT32 microSD card with the supplied `lora-tunnel` folder. Copy `config.example.json` to `config.json` **on the card**. Keep an existing private configuration when updating; the release starter contains empty credentials. [SD setup](sdcard/README.md).
+3. Select the matching board in the [web flasher](https://valleytech-lora-tunnel.pages.dev/). Factory images are merged binaries for USB installation at `0x0`. A Cardputer factory install replaces Launcher.
+4. To retain Bmorcelli Launcher, download the separate [Cardputer Launcher application](https://github.com/valleytechsolutions/LORA-Tunnel/releases/download/v0.5.0/LORA-Tunnel-0.5.0-Cardputer-ADV-LoRa1262-LAUNCHER-APP.bin) and install it through Launcher's SD menu. Never flash an application-only BIN at `0x0`.
+5. On first boot, select the LoRa region for your location or choose **Skip LoRa**. LoRa remains off until a supported region is selected. While stopped, Settings → LoRa cycles through Meshtastic, MeshCore and Both / slow scan.
+6. Open Wardriver and start a session. Check storage and GPS status. Use **Stop + Save** and wait for saving to finish before removing power or the card. Native sessions are stored under `/sessions/`.
 
-This target is the **newer Expansion Kit V2 with V4-R8, 863-928 MHz hardware** (sold for 868/915 MHz operation). Its board configuration selects an ESP32-S3, 16 MB QIO flash and 8 MB OPI PSRAM, SX1262, 240 × 320 touchscreen, GNSS and microSD. V1 pin assignments and firmware are not interchangeable. Match your actual PCB and frequency variant against the [verified hardware notes and official sources](docs/HARDWARE.md).
+Heltec uses touch controls, with optional physical navigation buttons. Cardputer uses its keyboard. Software shutdown saves before sleep; wake controls differ by board. [User guide](docs/USER_GUIDE.md) · [Web flasher guide](docs/WEB_FLASHER.md) · [Cardputer controls](docs/CARDPUTER_ADV.md).
 
-1. Preserve the existing firmware and board details using the [recovery guide](docs/RECOVERY.md). Confirm the target board and USB port before flashing.
-2. Prepare a FAT32 microSD card. Copy `sdcard/lora-tunnel` to the card root, then copy its `config.example.json` to `config.json` **on the card**. Leave real credentials out of the repository.
-3. Install through the [web installer guide](docs/WEB_FLASHER.md), or build and flash below.
-4. Boot and select the LoRa region for your location, or choose **Skip LoRa** to continue with Wi-Fi/BLE only. Check storage/GNSS status, choose **Wardriver**, and tap **START DRIVE**. Use **STOP + SAVE** and wait for saving to finish before removing the card or power.
-5. Copy `/sessions/LT-xxxxxxxx.jsonl` from the card for export. Preserve the original JSONL files.
+## Configuration and uploads
 
-Fresh installations leave LoRa **UNSET and disabled** until you select a region during setup or in Settings. The selector offers Meshtastic LongFast profiles derived from pinned upstream settings for this high-band kit; US is 906.875 MHz and EU_868 is 869.525 MHz. The selection is saved in device NVS and, when mounted, the SD configuration; the interface reports save failures. A mounted-card write must succeed before the active choice changes. Credentials and other valid settings are preserved. Existing valid US configurations migrate without retuning. A valid SD file takes precedence; invalid existing files recover from a valid backup or leave LoRa disabled. See [region profiles, hardware compatibility and persistence](docs/REGIONS.md).
+The SD configuration holds radio mode, dwell time, region, detection preferences and optional credentials. The default MeshCore profile is a regional starting point, not automatic discovery of the local network. Match its frequency, bandwidth and spreading factor to the network being observed. Up to four Meshtastic channel keys can be configured privately; unknown or unsupported encrypted payloads remain recorded as such.
 
-Use **Settings → Power → Power Off** to confirm a software shutdown: stop capture, finish saving, switch off GNSS/radios/display and enter deep sleep. Press **USER** to wake. The physical POWER button operates a separate battery latch; firmware cannot intercept its roughly three-second hardware cutoff. USB may continue supplying the board after that cutoff. See [shutdown and wake](docs/USER_GUIDE.md#shutdown-and-wake) before removing power.
+WiGLE, Wardrift and WDGWars uploads are opt-in and run only while capture is stopped and saved. Automatic uploads are off by default. Configure home Wi-Fi and the credentials for the chosen service; starting capture interrupts upload work. The Heltec provides an on-screen credential keyboard and the Cardputer uses its physical keyboard. Credentials are plaintext on the removable card and must stay out of source control and shared logs. [Upload setup and eligibility](docs/UPLOADS.md).
 
-Recon works with the supplied empty `detection_rules.json`: built-in parsers and a compiled vendor table provide its baseline evidence. Optional SD rules add names, SSID prefixes, OUIs, services and manufacturer identifiers. The 201-row vendor CSV is an attributed reference, **not an automatically loaded runtime database**. See [RECON.md](docs/RECON.md) and the [SD configuration guide](sdcard/README.md).
+WiGLE export requires valid receiver coordinates and UTC. Native logs retain observations that do not qualify. Mesh observations are not ordinary WiGLE rows; the WDGWars mesh candidate exporter remains separate from CSV uploads and its live ingestion is unverified. [Log schema](docs/LOG_FORMAT.md) · [Export instructions](docs/EXPORTS.md).
 
 ## Build and flash from source
 
-Install Python and PlatformIO Core 6.2.0, then run these commands from a checkout or unpacked source archive:
+Use Python 3.10 or newer and PlatformIO Core 6.2.0. The platform and libraries are pinned in `platformio.ini`; each board's wiring and memory limits are isolated in its board configuration.
 
 ```sh
 python -m pip install platformio==6.2.0
 python -m platformio run -e heltec-v4-r8-tft
-python -m platformio device list
+python -m platformio run -e cardputer-adv-lora1262
 ```
 
-The pinned pioarduino platform **55.03.312-1** uses **Arduino-ESP32 3.3.12 / ESP-IDF 5.5.5**. Direct library versions are pinned in `platformio.ini`. `core_dir = .pio-core` isolates framework/compiler packages from concurrent projects; keep that setting. `.pio-core` and `.pio` are generated locally and excluded from source releases. The first build needs internet to obtain dependencies; offline capture does not.
+Select the actual USB port before upload. Keep firmware, partition table and bootloader from the same build. The Heltec test unit requires the documented [esptool 5.4.0 legacy-stub fallback](docs/RECOVERY.md#legacy-stub-installation-fallback) when the default loader fails. A successful build is distinct from a verified flash and a successful radio capture.
 
-After the board and backup checks, replace `PORT` with the confirmed serial port, such as `COM3` on Windows or `/dev/ttyACM0` on Linux. Port numbers are machine-specific.
+Release downloads include board-specific factory images, the Cardputer Launcher app, source, separate dependency/relinking archives, an SD starter and SHA-256 checksums. [Rebuild and licensing materials](docs/RELINKING.md).
 
-```sh
-python -m platformio run -e heltec-v4-r8-tft -t upload --upload-port PORT
-python -m platformio device monitor --port PORT --baud 115200
-```
+## Validation and current limits
 
-The default esptool 5.4.0 loader failed on the test unit. If normal upload stops at flash-size configuration, use the explicit [legacy-stub 5.4.0 installation fallback](docs/RECOVERY.md#legacy-stub-installation-fallback), with a pinned tool and independent verification. Repeating the same default upload has not resolved that failure.
+The [release record](docs/RELEASE_0_5_0.md) separates source tests, build/image checks, device observations and unverified behavior. The [combined mesh record](docs/COMBINED_MESH_VALIDATION.md) documents the Heltec's live Meshtastic decoding, profile switching and saved-mode restart check.
 
-PlatformIO supplies the matching bootloader, partition and application addresses. **Do not write the application-only `firmware.bin` at address 0.** A web installer uses its matching release manifest and merged image. Firmware does not wait for a serial console to boot. [Stock recovery and image details](docs/RECOVERY.md).
+MeshCore public announcements are implemented, but a known-source MeshCore reception has not yet been verified on hardware. MeshCore encrypted group/direct chat, newer Meshtastic AEAD/PKI modes, arbitrary preset lists and Kismet datasource/PCAP-NG integration are outside this release. Live service upload receipts, physical Launcher installation/return and sustained drive acceptance also remain open. Removing the beta suffix does not turn those pending checks into completed tests.
 
-## Logs, exports and diagnostics
+## Credits and license
 
-The primary record is the versioned native JSONL session. Summaries on screen are bounded; repeated sightings remain separate observations. Receiver coordinates are kept separate from self-reported mesh/Remote ID positions. Unknown/encrypted LoRa payloads remain identifiable without invented names or coordinates. See [LOG_FORMAT.md](docs/LOG_FORMAT.md).
+Original LORA Tunnel code is released under the [MIT License](LICENSE). Third-party components keep their own licenses. [Full attribution and license inventory](docs/THIRD_PARTY.md).
 
-```sh
-python tools/export_logs.py wigle path/to/session.jsonl path/to/new-export.csv
-python tools/export_logs.py wdgwars-mesh-candidate path/to/session.jsonl path/to/new-candidate.json
-```
+LoRaPipe and Kismet inspired the capture/profile approach and informed protocol research. LORA Tunnel implements the capture, display, storage and supported decoding paths locally. Meshtastic and MeshCore protocol definitions informed the original parsers. RadioLib supplies the SX1262 driver; Arduino-ESP32, NimBLE-Arduino, TinyGPSPlus, ArduinoJson, LovyanGFX and the M5Stack libraries support the hardware. Crypto and the retained libsodium-derived validation constants have their corresponding notices.
 
-These commands write new files and report skipped records; they **do not upload**. The WiGLE exporter skips missing/stale fixes, Recon/raw-frame records and, by default, randomized BLE addresses. Sessions without eligible fixes still produce zero WiGLE rows; a confirmed working fix does not bypass the exporter’s freshness and validity checks. The WDGWars exporter requires genuinely decoded mesh identities, advertised node positions, role and forwarding information that the current LoRa decoder does not yet provide. Synthetic examples illustrate schemas, not successful service submissions. [Export requirements and source checks](docs/EXPORTS.md).
-
-Optional USB diagnostics require Python `pyserial` (`python -m pip install pyserial` if needed) and an explicit port:
-
-```sh
-python tools/bench_serial.py --port PORT --command status --seconds 10
-python tools/bench_gps.py --port PORT --seconds 15
-```
-
-The helpers print allowlisted diagnostic fields without coordinates, observed names or credentials. `bench_serial.py --command stop` succeeds only after fresh status reports `running=0 saving=0`; neither helper validates SD file contents or proves a GPS fix. USB is optional during capture. See the [user guide](docs/USER_GUIDE.md) and [GNSS diagnostics](docs/GPS_DIAGNOSTICS.md).
-
-## Development and credits
-
-```sh
-python -m pip install -r tools/site-requirements.txt
-python -m unittest discover -s tests -p "test_*.py" -v
-python -m platformio test -e native
-```
-
-Native tests require an available host C++ compiler. Build/host tests and physical acceptance are recorded separately. The 0.4 acceptance priorities are Cardputer GNSS and geotagged-log readback, keyboard/region/shutdown checks, sustained capture/recovery, browser and Launcher installation, and real WiGLE/Wardrift/WDGWars receipts with idle/capture handoff. Richer Meshtastic decoding, LoRa hopping and MeshCore remain later work. [Architecture](docs/ARCHITECTURE.md).
-
-Original LORA Tunnel application code is **MIT licensed** by Valleytech Solutions; see [LICENSE](LICENSE). Source/relinking materials are described in [RELINKING.md](docs/RELINKING.md). Imported components retain their original licenses and notices. The Recon subset comes from **Dragon Detector** and retains **Just Call Me Koko / ESP32Marauder** and **Flock Noir** attribution. **OpenDroneID core C** is included under Apache-2.0. LoRaPipe, Kismet, Meshtastic and SquachWatch are separately identified as architecture/protocol/coverage research where implementation was not copied. Web installation uses **ESP Web Tools**. See [THIRD_PARTY.md](docs/THIRD_PARTY.md) for exact revisions, modifications and notices; this project is independent of those upstream projects and Heltec.
+Recon includes the attributed Dragon Detector parser subset and inherited ESP32Marauder/Flock Noir credits; OpenDroneID retains its Apache-2.0 license. The browser installer uses ESPHome's ESP Web Tools with its notices. Heltec and M5Stack are the hardware manufacturers. LORA Tunnel is an independent Valleytech Solutions project.

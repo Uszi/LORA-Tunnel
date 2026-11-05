@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 import subprocess
+import struct
 import zipfile
 
 try:
@@ -20,6 +21,19 @@ SPEC.loader.exec_module(web)
 
 
 class WebReleaseChecks(unittest.TestCase):
+    def test_shared_sd_starter_is_reusable_but_must_agree(self):
+        sources = {name: b"synthetic" for name in web.SAFE_SD}
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "starter.zip"
+            web.write_sd_starter(path, sources)
+            original = path.read_bytes()
+            web.write_sd_starter(path, sources)
+            self.assertEqual(path.read_bytes(), original)
+            sources[next(iter(sources))] = b"changed"
+            with self.assertRaisesRegex(ValueError, "disagree"):
+                web.write_sd_starter(path, sources)
+            self.assertEqual(path.read_bytes(), original)
+
     def archive(self, path, entries):
         with zipfile.ZipFile(path, "w") as archive:
             for name, data in entries.items():
@@ -27,11 +41,32 @@ class WebReleaseChecks(unittest.TestCase):
             archive.writestr("LORA-Tunnel/SOURCE-SHA256.json", json.dumps({name:hashlib.sha256(data.encode()).hexdigest() for name,data in entries.items()}))
 
     def image(self):
-        data = bytearray(0x10000 + 512)
-        data[0], data[2], data[3], data[12] = 0xE9, 2, 0x4F, 9
-        data[0x10000] = 0xE9
-        data[0x10080:0x10080 + 13] = b"0.2.2-beta.1\0"
-        return bytes(data)
+        def segment(payload):
+            header = bytearray(24)
+            header[0], header[1], header[2], header[3], header[12], header[23] = 0xe9, 1, 2, 0x4f, 9, 1
+            data = header + struct.pack("<II", 0x3c000020, len(payload)) + payload
+            checksum = 0xef
+            for value in payload:
+                checksum ^= value
+            data += bytes((15 - len(data) % 16) % 16) + bytes([checksum])
+            return bytes(data) + hashlib.sha256(data).digest()
+        boot = segment(b"synthetic bootloader")
+        app = segment(b"heltec-v4-r8-tft\0" + b"0.2.2-beta.1\0" + bytes(256))
+        return boot + b"\xff" * (0x10000-len(boot)) + app
+
+    def test_application_corruption_rejected_even_when_outer_hash_matches(self):
+        data = bytearray(self.image())
+        data[-1] ^= 1
+        with self.assertRaisesRegex(ValueError, "image SHA-256"):
+            web.validate_factory(data, "0.2.2-beta.1", hashlib.sha256(data).hexdigest())
+
+    def test_stable_source_archive_with_empty_credentials(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "source.zip"
+            self.archive(path, {"include/version.h": '#define TUNNEL_VERSION "0.5.0"',
+                "sdcard/lora-tunnel/config.example.json": json.dumps({"credentials": {}, "lora": {"meshtastic_keys": []}}),
+                "sdcard/lora-tunnel/detection_rules.json": json.dumps({"schema": 1, "rules": []})})
+            self.assertIn("include/version.h", web.read_source(path, "0.5.0"))
 
     def test_expected_factory_and_source_version(self):
         data = self.image()

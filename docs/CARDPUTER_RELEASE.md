@@ -1,214 +1,48 @@
-# Cardputer 0.4.0-beta.1 release preparation
+# Cardputer release packaging
 
-**Status: HW11 public beta authorized on 2026-11-04 with scoped validation.**
-The project owner requested publication of the current firmware without further
-hardware testing. The exact image hashes and remaining unverified checks are
-recorded in [the validation report](CARDPUTER_SOFTWARE_VALIDATION.md). Full
-hardware acceptance and scoped beta authorization are separate publication
-paths; neither path changes artifact integrity, blank-NVS or wrong-board checks.
+The current release is **0.5.0** for **Cardputer ADV with Cap LoRa-1262 (U214)**. The [release notes](RELEASE_0_5_0.md) describe its features and known limitations; [CARDPUTER_ADV.md](CARDPUTER_ADV.md) covers installation and controls. Earlier 0.4.0-beta.1 measurements remain in [the historical validation record](CARDPUTER_SOFTWARE_VALIDATION.md).
 
-The full acceptance procedure below remains the target for a future fully
-validated release. For this beta, supply an exact-image publication record with
-`result: scoped-beta`, `publication_authorized: true`, `authorized_at`,
-`software_checks_passed: true`, `usb_application_verified: true`, and a nonempty
-`unverified_checks` list. The builder publishes that state as `scoped-beta`.
-Do not turn pending checks into passing booleans.
-
-## Artifacts and source provenance
-
-Build `cardputer-adv-lora1262`, run host checks and package its clean outputs:
+## Build and package
 
 ```sh
-python tools/package_cardputer.py --build .pio/build/cardputer-adv-lora1262 --output dist/cardputer-0.4.0-beta.1 --version 0.4.0-beta.1
-python tools/package_source.py dist/LORA-Tunnel-0.4.0-beta.1-source.zip
-python tools/package_relink.py package 0.4.0-beta.1 dist/LORA-Tunnel-0.4.0-beta.1-relink.zip --env cardputer-adv-lora1262 --build .pio/build/cardputer-adv-lora1262
+python -m platformio run -e cardputer-adv-lora1262
+python tools/package_cardputer.py --build .pio/build/cardputer-adv-lora1262 --check-only
+python tools/package_cardputer.py --build .pio/build/cardputer-adv-lora1262 --output dist/cardputer-0.5.0 --version 0.5.0
+python tools/package_source.py dist/LORA-Tunnel-0.5.0-source.zip
+python tools/package_relink.py package 0.5.0 dist/LORA-Tunnel-0.5.0-Cardputer-ADV-LoRa1262-relink.zip --env cardputer-adv-lora1262
 ```
 
-Create the source archive from the final local commit. The site builder verifies
-every packaged source file against its commit, so repackage after any final
-source change. The dependency companion retains M5Cardputer, M5Unified, M5GFX,
-RadioLib, TinyGPSPlus, NimBLE, ArduinoJson and the transitive IRremote package
-sources/notices with hashes. Nested Adafruit keyboard and M5GFX font notices
-remain in the packaged library trees.
+Package the final committed source. The site builder checks every source-archive file against its commit and binds the dependency companion to the exact factory image. Cardputer packaging verifies the ESP32-S3 image checksums/digests, 8 MB partition layout, blank factory NVS, target identity and application size. The Launcher app must equal the factory image's application at `0x10000`.
 
-Publish these exact named Cardputer binaries after acceptance:
-
-- `LORA-Tunnel-0.4.0-beta.1-Cardputer-ADV-LoRa1262-FACTORY-0x0.bin`
-- `LORA-Tunnel-0.4.0-beta.1-Cardputer-ADV-LoRa1262-LAUNCHER-APP.bin`
-
-Include matching source, dependency companion, SD setup and SHA256SUMS.
-Keep the original Heltec 0.3.0-beta.1 assets immutable. The Heltec build from
-current source is a regression check; it is not a newly published Heltec image.
-
-## Stage the two-target installer
-
-Create a **local**, untracked input catalog. Paths resolve relative to that
-catalog file. Use actual file hashes and commit IDs, not the placeholders below.
-The `site` source is the new 0.4 source; each firmware entry independently binds
-its own version, source archive and commit. The old Heltec guides/images are
-rendered from the preserved 0.3 source under its target directory.
-
-```json
-{
-  "schema": 2,
-  "github": "https://github.com/valleytechsolutions/LORA-Tunnel",
-  "gitea": "https://git.churchofmalware.org/Valleytech/LORA-Tunnel",
-  "site": {
-    "version": "0.4.0-beta.1", "source": "LORA-Tunnel-0.4.0-beta.1-source.zip",
-    "source_sha256": "REPLACE", "source_commit": "REPLACE"
-  },
-  "targets": [
-    {
-      "target": "heltec-v4-r8-tft-high-band", "version": "0.3.0-beta.1",
-      "factory": "LORA-Tunnel-0.3.0-beta.1-Heltec-V4-R8-TFT-HIGH-BAND-FACTORY-0x0.bin",
-      "factory_sha256": "e6905bfe5521e2f9887a9628dcaf55870b8b44cba2c92c1f8e3c671ee1533a77",
-      "source": "LORA-Tunnel-0.3.0-beta.1-source.zip",
-      "source_sha256": "519d91704d2572c8b705912bb17105e1dc348e9e3a7db3141ef2f876e558dd85",
-      "source_commit": "50da5b915fb75d5e12b2bfaae6f7479a4fafec07",
-      "relink": "LORA-Tunnel-0.3.0-beta.1-relink.zip",
-      "relink_sha256": "8d2d82cd3b9c76d54885889f56d1f3773d62ffd6555c1541b120c0502899326f",
-      "sd": "LORA-Tunnel-0.3.0-beta.1-SD-setup.zip",
-      "public_enabled": true
-    },
-    {
-      "target": "cardputer-adv-lora1262", "version": "0.4.0-beta.1",
-      "factory": "cardputer-0.4.0-beta.1/LORA-Tunnel-0.4.0-beta.1-Cardputer-ADV-LoRa1262-FACTORY-0x0.bin",
-      "factory_sha256": "REPLACE",
-      "app": "cardputer-0.4.0-beta.1/LORA-Tunnel-0.4.0-beta.1-Cardputer-ADV-LoRa1262-LAUNCHER-APP.bin",
-      "app_sha256": "REPLACE", "source": "LORA-Tunnel-0.4.0-beta.1-source.zip",
-      "source_sha256": "REPLACE", "source_commit": "REPLACE",
-      "relink": "LORA-Tunnel-0.4.0-beta.1-relink.zip", "relink_sha256": "REPLACE",
-      "public_enabled": false
-    }
-  ]
-}
-```
-
-```sh
-python tools/build_web.py --catalog dist/catalog-input.json --output build-output/web-cardputer-local --local-preview
-python -m http.server 8765 --bind 127.0.0.1 --directory build-output/web-cardputer-local
-```
-
-Open `http://127.0.0.1:8765/?acceptance=1`. Pending Cardputer installation is
-enabled only when the build is explicitly a local preview, the hostname is
-loopback and the acceptance query is present. It still requires hardware
-selection/confirmation. Do not deploy the preview directory. `PUBLICATION.json`
-records that it is not publishable.
-
-A production build omits `--local-preview`. It rejects an unauthorized Cardputer
-entry. Set `public_enabled: true` and supply `acceptance` pointing to either the
-scoped beta authorization described above or the completed hardware record. The record requires target, `result`
-`passed`, exact factory/app hashes, `tested_at`, `launcher_version`, and every
-following boolean under `checks`:
-
-- `factory_boot`: clean merged installation and cold boot, no serial monitor required.
-- `keyboard_display`: colors, readable landscape pages, every navigation/text control.
-- `lora_receive`: region selection and receive evidence with U214; missing cap handled.
-- `gps_fix`: fresh valid fix and UTC through U214 GNSS.
-- `sd_readback`: saved sessions independently read, valid records/geotags and clean stop.
-- `cold_start_region`: region/Skip LoRa persists after complete restart.
-- `power_wake`: Cancel, stop/save, power/sleep and documented wake behavior.
-- `sustained_capture`: at least 30 minutes, responsive UI, heap/queue/drop counters observed.
-- `web_flash`: exact merged binary installed through the local browser installer.
-- `launcher_install`: exact application binary installed through Launcher's SD menu.
-- `launcher_return`: stop/save, power cycle, Enter at Launcher startup, relaunch and auto-start.
-- `upload_idle_resume`: configured home Wi-Fi only while stopped/saved; starting capture interrupts upload work and promptly resumes scanning, with safe retry afterward.
-- `wigle_upload`: explicitly enable WiGLE with the user's API name/token and confirm a consenting test session's actual service receipt.
-- `wardrift_upload`: explicitly enable Wardrift with the user's token and confirm its actual accepted/duplicate receipt.
-- `wdgwars_upload`: explicitly enable WDGWars with the user's token and confirm completion of its asynchronous upload job, not merely HTTP 202.
-
-At the physical milestone the user supplies home Wi-Fi credentials and enables
-each service they want to test. Keep tokens, coordinates and captures private.
-Record live service results separately from software fixtures. An unavailable
-credential or untested service remains pending; neither a host test nor a saved
-setting is a successful live upload. A full acceptance claim remains pending until
-the listed live checks are recorded against these exact binaries; scoped beta
-publication must disclose the outstanding checks.
-
-Retain test details and logs privately; publish only the sanitized validation
-summary. A file containing booleans is a record of testing, not a substitute
-for carrying out those tests. If a fix changes a binary, retest that binary and
-update its hashes before publication.
-
-## Publication after acceptance
-
-1. Publish source and a new GitHub prerelease with checked assets. Verify remote
-   source commit, asset size and SHA-256 by downloading the public files.
-2. Update the existing Gitea **packaged distribution**, preserving the Heltec
-   download and identifying the full source ZIP accurately. Do not turn it into
-   a Git-history mirror. Read back every uploaded file and checksum.
-3. Build the production installer from accepted artifacts, inspect both target
-   selectors and 1440/390/320 px layouts, then deploy the checked directory.
-   Confirm downloaded metadata, binaries, guides/images and legacy Heltec URLs.
-4. Submit the Cardputer factory BIN to M5Burner. Record submission, review and
-   public catalog availability separately. Submission success does not establish
-   catalog approval. Check the public download's hash when approved.
-
-## M5Burner submission draft
-
-The [M5Burner developer upload form](https://burner.m5stack.com/developer/firmware/upload)
-was inspected on 2026-11-03 using the ValleytechSolutions account. No fields were
-entered and no files were uploaded. The form requires a firmware name,
-category selections, supported-device selections, firmware description,
-version, version description, BIN package and cover. Its description editor
-supports Markdown or rich text, and it also provides a Project Link field.
-The following is a local draft to apply only after the acceptance gate passes.
-
-| Form field | Prepared value |
+| File | Installation route |
 | --- | --- |
-| Firmware name | LORA Tunnel — Cardputer ADV + Cap LoRa-1262 |
-| Categories (multi-select) | Tools; Network & Communication; Navigation & Tracking |
-| Supported devices (multi-select) | Cardputer ADV only; select the separate ADV entry |
-| Version | 0.4.0-beta.1 |
-| BIN package | `LORA-Tunnel-0.4.0-beta.1-Cardputer-ADV-LoRa1262-FACTORY-0x0.bin` |
-| Cover (required) | `assets/ui/cardputer/m5burner-cover.png` |
-| Project Link | `https://github.com/valleytechsolutions/LORA-Tunnel` |
+| `LORA-Tunnel-0.5.0-Cardputer-ADV-LoRa1262-FACTORY-0x0.bin` | USB, web installer or M5Burner at address zero; replaces Launcher |
+| `LORA-Tunnel-0.5.0-Cardputer-ADV-LoRa1262-LAUNCHER-APP.bin` | Bmorcelli Launcher SD menu; Launcher chooses the destination partition |
 
-The package is the merged factory image for installation at offset `0x0`.
-The separate `LAUNCHER-APP.bin` is for Bmorcelli's Launcher and is not the
-M5Burner package. Confirm the submitted file and cover match the accepted
-release inventory before uploading.
+Provide both files, the source archive, board-specific dependency/relinking archive, empty-credential SD starter and SHA-256 checksum list. Do not publish flash backups or private SD configuration. Older release artifacts remain immutable.
 
-**Firmware description draft:**
+## Publication record
 
-LORA Tunnel for M5Stack Cardputer ADV with Cap LoRa-1262 (U214).
-Use the physical keyboard to operate standalone Wi-Fi, BLE and LoRa observation
-sessions, view passive Recon evidence, and save versioned logs to microSD.
-U214 provides LoRa and GNSS. Choose a compatible region on first start or skip
-LoRa. Optional WiGLE, Wardrift and WDGWars uploads require configured home Wi-Fi,
-service credentials and separate enablement; uploads run only while capture is
-stopped and saved. Starting capture cancels an upload and waits for cleanup and
-radio restoration before starting the new session.
+Full hardware acceptance is separate from release authorization with disclosed limitations. A current stable release can use `result: scoped-release` with its exact `version`, target, factory/application hashes, explicit `publication_authorized`, authorization date, passed software checks, verified USB application installation, and a nonempty `unverified_checks` list. The builder rejects an old `scoped-beta` record for a stable version. Pending checks must not be marked as passed.
 
-Requires the ADV keyboard model and U214; original Cardputer and other radio
-caps are not this target. Back up your firmware and SD files before installation.
-Factory installation replaces Launcher; a separate Launcher application is
-available in the GitHub release. See the linked guide for controls, setup,
-current feature limits and exact hardware-test evidence.
+The complete acceptance checklist includes display/keyboard, known-source RF, GPS-valid saved observations, power/wake, sustained capture, browser factory flashing, Launcher installation/return and live service receipts. A stable version label does not substitute for these results.
 
-**Version description draft (required):**
+## Two-target web installer
 
-0.4.0-beta.1 adds the Cardputer ADV + Cap LoRa-1262 target with native keyboard
-navigation and credential entry, GNSS-assisted Wi-Fi/BLE/LoRa observation,
-passive Recon views and microSD session logs. Adds separately enabled WiGLE,
-Wardrift and WDGWars uploads over configured home Wi-Fi while sessions are
-stopped and saved. Memory and file-buffer changes retain the full RGB332 UI
-buffer, capture capacities and raw-evidence limits. Factory and Launcher
-application images are supplied separately. This is a beta release; consult
-the release's validation record for tested hardware, service results and
-remaining limitations.
+Create a private schema-2 catalog containing the Heltec and Cardputer entries. Each entry includes its version, full source commit, paths and SHA-256 hashes for factory/source/relink artifacts, and a publication record. Cardputer also supplies the application BIN/hash. Each board has its own factory manifest, hardware requirements and guide. The site source may be shared when both targets use the same source release.
 
-**Visibility and submission:** The form offers **Private** ("No review needed,
-hidden from other users") and **Public** ("Review required, visible to other
-users"). The intended community release uses Public after the acceptance gate
-passes. Private also uploads files to M5Burner and does not bypass this project's
-local-only gate. Record submission, review outcome and public catalog
-availability separately; do not describe an uploaded or pending-review entry
-as publicly available.
+```sh
+python tools/build_web.py --catalog dist/catalog-0.5.0.json --output build-output/web-0.5.0
+```
 
-**Cover candidate:** `assets/ui/cardputer/m5burner-cover.png`, generated by
-`python tools/make_cardputer_cover.py` (Pillow required), combines the existing
-green LORA Tunnel radio logo and a labeled
-240 × 135 source-rendered Cardputer UI preview. Label simulated previews as
-such; do not present generated or host-rendered artwork as a device photograph.
-Keep required component credits in the source/docs and submission source link.
+`--local-preview` permits local review of unpublished candidates; that output must not be deployed. A normal build requires publication evidence for each enabled target. Validate links, hardware switching, confirmation reset and download hashes before deploying. ESP32-S3 chip detection cannot identify which board or cap is attached.
+
+## M5Burner
+
+Update the existing **LORA Tunnel — Cardputer ADV + Cap LoRa-1262** listing at [burner.m5stack.com](https://burner.m5stack.com/). Select Cardputer ADV and upload the factory image. Link the GitHub release and mention the U214 requirement, microSD setup, region selection, combined mesh mode and separate Launcher download. Retain the project logo/cover and professional description.
+
+Submission and public catalog approval are different states. Record the version and actual dashboard result; do not claim public availability while review is pending. Do not upload the Heltec factory image or the Launcher application as the M5Burner standalone firmware.
+
+## Verification after publishing
+
+Check the GitHub release, production installer catalog/manifests and every public download against local SHA-256 hashes. Update Gitea by ordinary manual upload or an authorized Git push; do not use repository migration. Verify M5Burner submission state separately. Keep device-specific captures, credentials and recovery images outside public artifacts.

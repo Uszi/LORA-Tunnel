@@ -1,0 +1,31 @@
+{
+  "version": "0.5.0",
+  "synthetic": true,
+  "source_sha256": {
+    "src/ui_cardputer.cpp": "c2f2b5243f22276e6928274f713fa6079851de29c33f7e22db1f95ec15a3abe1",
+    "include/version.h": "00d17228c92b78cecfa7047788d7bb7baa542f3ed2a23f74438e1f82f1f8d8c1",
+    "tests/ui_host/cardputer_ui.cpp": "b384f926837c70da457760f7d6e949c4c251767fbbb1e2d974e477fbe6da25e8",
+    "tools/check_cardputer_ui.py": "9b11917aaa13b9691c3e49da582908ca210e2e6a56b4dd759aeb2be9e49ae631"
+  },
+  "png_sha256": {
+    "credentials-more.png": "c18b80994c3a934cabc414d07ad102fc8272d941a21367eafef34f324b69e45f",
+    "credentials.png": "07218e4f7f9628b6c3b60f64e4ac75cbca207cbe74da724da8229a66fa3dd820",
+    "detail.png": "9a8845ca1a9779847ad029ebbb617c884a263e6030a046c196eeb37af339df6d",
+    "home.png": "ef73032cfafcf6863e35d370b7dd99ccb006b4b8249fd9fbb5db6e4cc580ad17",
+    "keyboard-invalid.png": "eb6f40712978f27f0718e09aa5c8eca5b8aeff780a3a062065fc3ef1460c9754",
+    "keyboard.png": "5f97d44c4782ec47435867f7d8355c3fcb4228c3a6d293f85c64e71cef639b02",
+    "lora.png": "43071e342333e1145c182b18840555399587ca87c584bcfd7568a80ac5d3922c",
+    "power.png": "d1ca9bb79eecae72964ddd685a8a3389fbce76dbcd711770ef56f7aefac9d90a",
+    "recon.png": "9201feb5247771019f232ebc4c2e1171dbdff90afc3d2b83811d70758051941d",
+    "regions.png": "6ecf7f6a713e93f9e642fa421b0d728b07c0021bee208eabc6074ad85cc6e835",
+    "saving.png": "e7bfcf8784b4129fc84ba055b22ecfc00efffec15b4892f5ec421f8c9d52b1c5",
+    "settings-combined.png": "a0173a1ef1d56282f9ce60cd636b0b4b73680425d8f8e8a076f9d36db2f02c76",
+    "settings-more.png": "7df889f2f59325da288a79bb8a767a569bcb769d060bd9a645e33c3309fb3627",
+    "settings.png": "408fcdacb2a624d6e0537c65c3eac4d5633899005ea19132defcb48f8518231a",
+    "splash.png": "423febea1bdecea4fe027bbc14bc21d99d6dff4bfb0b5accff8b5378fff93537",
+    "uploads-more.png": "c199c3ce37f1ae7375bb4439d7937d985e32fdd125a56058661ed16d8d6a53dd",
+    "uploads-status-notice.png": "62f3b57f3020533701a11f2cd19675b8b4c33790a12b54b7e98f3e81ff3ced39",
+    "uploads.png": "23f579b8f703ff0e336fdee8cfa38c39aa9d094937eca3549ef2773bbd4c4321",
+    "wardriver.png": "438ed45bdd20cea346c0b843e3f3abae4757823d71a99cceb5635e1db3107bfb"
+  }
+}

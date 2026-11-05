@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "result": "scoped-release",
+  "target": "heltec-v4-r8-tft-high-band",
+  "version": "0.5.0",
+  "factory_sha256": "8c6447f0df52511a7291979d0f276619bda44a6b8882ebbc0bc3aba22856f1d5",
+  "app_sha256": "493b7c66d020f736e259662a7241b8dffd9727d2500d25d42d85961eee377656",
+  "publication_authorized": true,
+  "authorized_at": "2026-11-05",
+  "software_checks_passed": true,
+  "usb_application_verified": true,
+  "unverified_checks": [
+    "Known-source MeshCore RF reception and field comparison",
+    "Physical browser factory installation",
+    "Physical Launcher installation, auto-start and menu return",
+    "Sustained-drive and power/fault acceptance on the final image",
+    "Independent final-release SD session/geotag readback",
+    "Live firmware upload receipts and WDGWars mesh ingestion"
+  ]
+}

@@ -7,6 +7,7 @@ Install the pinned host dependency from tools/site-requirements.txt first.
 import argparse
 import hashlib
 import html
+import io
 from html.parser import HTMLParser
 import json
 from pathlib import Path, PurePosixPath
@@ -22,10 +23,11 @@ ROOT = Path(__file__).resolve().parents[1]
 SITE = "https://valleytech-lora-tunnel.pages.dev/"
 TARGET = "heltec-v4-r8-tft-high-band"
 MAX_FILE = 25 * 1024 * 1024
-VERSION_RE = re.compile(r'#define TUNNEL_VERSION "([0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+)"')
+VERSION_RE = re.compile(r'#define TUNNEL_VERSION "([0-9]+\.[0-9]+\.[0-9]+(?:-beta\.[0-9]+)?)"')
 GUIDES = ("USER_GUIDE", "UI_GUIDE", "HARDWARE", "WEB_FLASHER", "RECOVERY",
           "EXPORTS", "RECON", "THIRD_PARTY", "VALIDATION", "LOG_FORMAT",
-          "ARCHITECTURE", "TEST_CHECKLIST", "GPS_DIAGNOSTICS", "LORA", "RELINKING", "REGIONS")
+          "ARCHITECTURE", "TEST_CHECKLIST", "GPS_DIAGNOSTICS", "LORA", "RELINKING", "REGIONS",
+          "COMBINED_MESH", "COMBINED_MESH_VALIDATION", "RELEASE_0_5_0")
 
 
 import sys
@@ -74,6 +76,13 @@ def validate_factory(data, version, expected_sha, target=TARGET):
         raise ValueError("Factory boot header must be ESP32-S3, 16 MB flash, DIO")
     if data[0x10000] != 0xE9 or version.encode("ascii") + b"\0" not in data[0x10000:]:
         raise ValueError("Factory is missing the expected application/version")
+    if cardputer.validate_image(data) > 0x8000:
+        raise ValueError("Heltec bootloader overlaps partition table")
+    app = data[0x10000:]
+    if len(app) > 0x640000 or cardputer.validate_image(app) != len(app):
+        raise ValueError("Heltec application integrity or partition size mismatch")
+    if b"heltec-v4-r8-tft\0" not in app and version != "0.3.0-beta.1":
+        raise ValueError("Missing Heltec target identity")
 
 
 def read_source(source_zip, version):
@@ -113,7 +122,7 @@ def read_source(source_zip, version):
         header = archive.read(header_paths[0]).decode("utf-8")
         match = VERSION_RE.search(header)
         if not match or match.group(1) != version:
-            raise ValueError("Source version does not match requested beta")
+            raise ValueError("Source version does not match requested release")
         config = json.loads(archive.read(prefix + "sdcard/lora-tunnel/config.example.json"))
         if not isinstance(config.get("credentials"), dict) or any(v != "" for v in config["credentials"].values()):
             raise ValueError("Source sample credentials must be empty")
@@ -235,8 +244,7 @@ def prepare_target(entry, base, github, local_preview):
         raise ValueError("Unknown hardware target")
     meta = TARGETS[target]
     version = entry["version"]
-    if not re.fullmatch(r"\d+\.\d+\.\d+-beta\.\d+", version):
-        raise ValueError("Expected explicit beta version")
+    channel = cardputer.release_channel(version)
     factory_path, factory = checked_file(entry["factory"], entry["factory_sha256"], base)
     source_path, source = checked_file(entry["source"], entry["source_sha256"], base)
     sources = read_source(source_path, version)
@@ -246,7 +254,8 @@ def prepare_target(entry, base, github, local_preview):
     validate_commit(sources, commit)
     validate_factory(factory, version, entry["factory_sha256"], target)
     relink_path, relink = checked_file(entry["relink"], entry["relink_sha256"], base)
-    if source_path.name != f"LORA-Tunnel-{version}-source.zip" or relink_path.name != f"LORA-Tunnel-{version}-relink.zip":
+    relink_names = {f"LORA-Tunnel-{version}-relink.zip", f"LORA-Tunnel-{version}-{meta['filename']}-relink.zip"}
+    if source_path.name != f"LORA-Tunnel-{version}-source.zip" or relink_path.name not in relink_names:
         raise ValueError("Use the versioned source and dependency companion filenames")
     with zipfile.ZipFile(relink_path) as archive:
         companion = json.loads(archive.read("LORA-Tunnel-relink/MANIFEST.json"))
@@ -261,21 +270,32 @@ def prepare_target(entry, base, github, local_preview):
         cardputer.validate_factory(factory, version, app)
         if public_enabled:
             if not entry.get("acceptance"):
-                raise ValueError("Cardputer public release requires acceptance or scoped beta authorization")
+                raise ValueError("Cardputer public release requires acceptance or scoped publication authorization")
             acceptance = json.loads((base / entry["acceptance"]).read_text(encoding="utf-8"))
-            validation_status = cardputer.validate_publication(acceptance, entry["factory_sha256"], entry["app_sha256"])
+            validation_status = cardputer.validate_publication(acceptance, entry["factory_sha256"], entry["app_sha256"], version=version)
         elif not local_preview:
             raise ValueError("Cardputer hardware acceptance is pending; use --local-preview for local preparation only")
-    else:
+    elif version == "0.3.0-beta.1":
         # The original Heltec binary/source pair is preserved, not rebuilt or relabelled.
         if version != "0.3.0-beta.1" or entry["factory_sha256"] != HELTEC_FACTORY_SHA or commit != HELTEC_COMMIT or entry["source_sha256"] != HELTEC_SOURCE_SHA:
             raise ValueError("Heltec catalog entry must preserve the published 0.3.0-beta.1 release")
         if entry["relink_sha256"] != "8d2d82cd3b9c76d54885889f56d1f3773d62ffd6555c1541b120c0502899326f":
             raise ValueError("Preserve the published Heltec dependency companion")
         _, sd_data = checked_file(entry["sd"], "aa23af1f6c096b45d0c43f82f8cbca2047ba6535c9ed2f3ab0606bee5dd83a33", base)
+    else:
+        if digest(factory[0x10000:]) != entry.get("app_sha256"):
+            raise ValueError("Heltec application does not match the publication record")
+        if public_enabled:
+            if not entry.get("acceptance"):
+                raise ValueError("Heltec public release requires a publication record")
+            acceptance = json.loads((base / entry["acceptance"]).read_text(encoding="utf-8"))
+            validation_status = cardputer.validate_publication(
+                acceptance, entry["factory_sha256"], entry["app_sha256"], target=target, version=version)
+        elif not local_preview:
+            raise ValueError("Heltec publication record is pending; use --local-preview")
     factory_name = f"LORA-Tunnel-{version}-{meta['filename']}-FACTORY-0x0.bin"
     app_name = f"LORA-Tunnel-{version}-{meta['filename']}-LAUNCHER-APP.bin" if app is not None else None
-    release = {"target": target, "name": meta["name"], "version": version, "channel": "beta",
+    release = {"target": target, "name": meta["name"], "version": version, "channel": channel,
                "flash_bytes": meta["flash_bytes"], "psram_bytes": meta["psram_bytes"], "flash_mode": "dio",
                "factory_file": factory_name, "factory_sha256": entry["factory_sha256"],
                "source_file": source_path.name, "source_sha256": entry["source_sha256"], "source_commit": commit,
@@ -287,6 +307,21 @@ def prepare_target(entry, base, github, local_preview):
     if app_name:
         release.update(app_file=app_name, app_sha256=entry["app_sha256"], app_bytes=len(app))
     return release, factory, app, source, sources, sd_data
+
+
+def write_sd_starter(path, sources, existing=None):
+    """Two boards may share a release starter only when its bytes agree."""
+    if existing is None:
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+            for name in SAFE_SD:
+                info = zipfile.ZipInfo(name.removeprefix("sdcard/"), (1980, 1, 1, 0, 0, 0))
+                info.compress_type = zipfile.ZIP_DEFLATED
+                archive.writestr(info, sources[name])
+        existing = buffer.getvalue()
+    if path.exists() and path.read_bytes() != existing:
+        raise ValueError("Targets disagree on the shared SD starter")
+    path.write_bytes(existing)
 
 
 def build(args):
@@ -302,7 +337,7 @@ def build(args):
     validate_commit(site_sources, site["source_commit"])
     entries = spec["targets"]
     if len(entries) != 2 or {e["target"] for e in entries} != set(TARGETS):
-        raise ValueError("Catalog must contain exactly the preserved Heltec and Cardputer ADV targets")
+        raise ValueError("Catalog must contain exactly the Heltec and Cardputer ADV targets")
     prepared = [prepare_target(entry, base, github, args.local_preview) for entry in entries]
     output = args.output.resolve()
     if output == ROOT or (output.is_relative_to(ROOT) and output.relative_to(ROOT).parts[0] not in ("build-output", "dist")):
@@ -338,14 +373,7 @@ def build(args):
         (downloads / release["source_file"]).write_bytes(source)
         if app is not None:
             (downloads / release["app_file"]).write_bytes(app)
-        if sd_data is not None:
-            (downloads / release["sd_file"]).write_bytes(sd_data)
-        else:
-            with zipfile.ZipFile(downloads / release["sd_file"], "x", zipfile.ZIP_DEFLATED) as archive:
-                for name in SAFE_SD:
-                    info = zipfile.ZipInfo(name.removeprefix("sdcard/"), (1980, 1, 1, 0, 0, 0))
-                    info.compress_type = zipfile.ZIP_DEFLATED
-                    archive.writestr(info, sources[name])
+        write_sd_starter(downloads / release["sd_file"], sources, sd_data)
         release.update(github=github, gitea=gitea)
         manifest = {"name": "LORA Tunnel — " + release["name"], "version": release["version"],
                     "new_install_prompt_erase": True, "new_install_improv_wait_time": 0,

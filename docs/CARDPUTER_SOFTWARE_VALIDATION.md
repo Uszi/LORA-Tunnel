@@ -1,4 +1,6 @@
-# Cardputer 0.4.0-beta.1 software candidate
+# Historical Cardputer 0.4.0-beta.1 validation
+
+For the current release, see [0.5.0 release notes](RELEASE_0_5_0.md). This page preserves the earlier candidate evidence.
 
 Updated 2026-11-04 (America/New_York). **HW11 is authorized for public beta publication with the limits below.**
 **HW11 is installed by an independently verified USB application update.**

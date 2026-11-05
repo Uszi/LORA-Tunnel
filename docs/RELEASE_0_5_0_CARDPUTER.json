@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "result": "scoped-release",
+  "target": "cardputer-adv-lora1262",
+  "version": "0.5.0",
+  "factory_sha256": "28da8c73521c13de1a0e30ebe1bf713e6c93bf76aae4a3665911d0cf9c57a905",
+  "app_sha256": "476e65488bb15183bfd37702c5217d48402df07ae5a7b4fae1118a11808721ed",
+  "publication_authorized": true,
+  "authorized_at": "2026-11-05",
+  "software_checks_passed": true,
+  "usb_application_verified": true,
+  "unverified_checks": [
+    "Known-source MeshCore RF reception and field comparison",
+    "Physical browser factory installation",
+    "Physical Launcher installation, auto-start and menu return",
+    "Sustained-drive and power/fault acceptance on the final image",
+    "Independent final-release SD session/geotag readback",
+    "Live firmware upload receipts and WDGWars mesh ingestion"
+  ]
+}

@@ -1,14 +1,8 @@
 # LORA Tunnel web installer
 
-The Cardputer ADV + Cap LoRa-1262 public beta is available alongside the preserved
-Heltec 0.3.0-beta.1 installer. See [Cardputer installation and Launcher files](CARDPUTER_ADV.md)
-and [publication/acceptance status](CARDPUTER_RELEASE.md). The hardware selector
-uses a separate manifest for each board because both identify as ESP32-S3.
-Changing hardware clears the confirmation. Cardputer 0.4.0-beta.1 is published with scoped validation and disclosed
-remaining checks. Unauthorized candidates remain restricted to local previews. The Heltec-specific notes below remain scoped
-to that existing board and release.
+Version **0.5.0** provides separate installers for Heltec Expansion V2 / V4-R8 high-band hardware and Cardputer ADV with U214 Cap LoRa-1262. Select the exact board: both identify as ESP32-S3, so chip detection cannot distinguish their wiring or memory. Changing the selection clears confirmation.
 
-**Beta firmware: 0.3.0-beta.1, Heltec Expansion Kit V2 / V4-R8, 863–928 MHz hardware.** Fresh installations leave LoRa off until a region is selected. A fresh GPS fix and a short stopped/closed capture were physically verified on 0.3.0-beta.1. Region saving, software shutdown/Cancel and USER wake have scoped user confirmation; independent persistence, sustained captures and browser flashing remain separate. This published 0.3 image has no uploader or full mesh payload decoder. Read the [user guide](USER_GUIDE.md) and [validation record](VALIDATION.md) before installation.
+The Cardputer factory image replaces Launcher. To keep Launcher, use the separate application BIN through its SD menu. [Cardputer instructions](CARDPUTER_ADV.md) · [Release notes and known limitations](RELEASE_0_5_0.md).
 
 Open the [LORA Tunnel web installer](https://valleytech-lora-tunnel.pages.dev/) or the [Valleytech Solutions project page](https://valleytechsolutions.tech/pages/lora-tunnel). Source is hosted on [GitHub](https://github.com/valleytechsolutions/LORA-Tunnel); the [Gitea packaged distribution](https://git.churchofmalware.org/Valleytech/LORA-Tunnel) contains release artifacts and complete source ZIPs. Source builds remain available through the [README](../README.md#build-and-flash-from-source). Physical flashing through the browser remains unverified; successful command-line installation is recorded separately.
 
@@ -17,7 +11,7 @@ Open the [LORA Tunnel web installer](https://valleytech-lora-tunnel.pages.dev/) 
 1. Confirm the actual [Heltec Expansion Kit V2 / V4-R8](https://heltec.org/project/v4-r8-ex/) board and 863–928 MHz variant. The separate 433 MHz and 470–510 MHz kits are not targets for this image. ESP32-S3 chip detection alone cannot distinguish compatible display, expansion wiring or flash/PSRAM variants. This image is not for Expansion Kit V1 or arbitrary ESP32-S3 boards.
 2. Preserve the current firmware and board details using [RECOVERY.md](RECOVERY.md). Installation replaces firmware; it is not a stock-firmware backup operation. Prepare your microSD card using [sdcard/README.md](../sdcard/README.md).
 3. Open the verified installer over HTTPS in a desktop browser with Web Serial support, such as Chrome or Edge. Use a USB data cable and close serial monitors or other applications holding the port. ESP Web Tools' [official documentation](https://esphome.github.io/esp-web-tools/) describes the browser/security requirements.
-4. Select the exact beta release and matching board on the installer, connect, and choose the confirmed device port. Review the release notes and install prompt before writing. **Leave “Erase device” unchecked when relying on scoped recovery.** A full-chip erase changes regions outside that recovery set and requires a verified full-chip backup/recovery plan; the test unit's full backup did not pass that check.
+4. Select the exact release and matching board on the installer, connect, and choose the confirmed device port. Review the release notes and install prompt before writing. **Leave “Erase device” unchecked when relying on scoped recovery.** A full-chip erase changes regions outside that recovery set and requires a verified full-chip backup/recovery plan; the test unit's full backup did not pass that check.
 5. Wait for installation to finish. Reconnect/restart if prompted, then check that LORA Tunnel boots, storage is available and the screen responds. Installation success alone does not prove GPS, SD file integrity or RF coverage.
 6. At first run, select a compatible region or **Skip LoRa** for Wi-Fi/BLE only. Choose Wardriver or Recon and start a short test. Stop and let saving finish. Settings provides region changes and **Power → Power Off** with confirmation; USER wakes from that software sleep. Follow the [hardware checklist](TEST_CHECKLIST.md) before relying on a drive session.
 
@@ -31,6 +25,6 @@ The high-band website gate accepts only the release target `heltec-v4-r8-tft-hig
 
 First-run profile selection happens on the device, not in ESP Web Tools. A valid existing SD configuration can preserve an older US profile. Region selection changes LoRa only; the radio still listens to one frequency/modem configuration at a time. [Region table and saved-setting precedence](REGIONS.md)
 
-Both targets store credentials on microSD and do not implement Improv Wi-Fi provisioning. Cardputer 0.4 adds opt-in WiGLE, Wardrift and WDGWars uploads while capture is stopped; the preserved Heltec 0.3 release has no uploader. ESP Web Tools' optional Wi-Fi features do not add those capabilities to this firmware. Keep the SD card's private configuration and sessions out of published firmware/source artifacts.
+Both targets store credentials on microSD and do not implement Improv Wi-Fi provisioning. Version 0.5.0 supports opt-in WiGLE, Wardrift and WDGWars uploads on both boards while capture is stopped and saved. ESP Web Tools' optional Wi-Fi features do not add those capabilities to this firmware. Keep the SD card's private configuration and sessions out of published firmware/source artifacts.
 
 The web installer uses [ESP Web Tools](https://github.com/esphome/esp-web-tools), pinned to 10.4.0 under Apache-2.0. Its retained license and provenance are under `web/vendor/esp-web-tools-10.4.0/`. Original firmware code is MIT licensed; imported component licenses remain separate. [Full attribution](THIRD_PARTY.md).

@@ -1,8 +1,8 @@
 # LORA Tunnel touchscreen and button guide
 
-This is the Heltec touchscreen/button guide. [Cardputer ADV 0.4 uses a separate physical-keyboard interface](CARDPUTER_ADV.md), including per-service upload controls. Its source-rendered previews and hardware acceptance are tracked separately.
+This is the Heltec touchscreen/button guide for 0.5.0. [Cardputer ADV uses a separate physical-keyboard interface](CARDPUTER_ADV.md). Both targets support the same capture modes; controls and power behavior differ.
 
-This describes the Heltec **0.3.0-beta.1** interface. Build, installation and physical results are recorded separately in [VALIDATION.md](VALIDATION.md). The user previously confirmed the distinct Wardriver/Recon views, clean radio logo and flicker fix, and subsequently confirmed working GPS. A read-only 0.2.3-dev check then verified a fresh 3D fix with five satellites. The new region picker, shutdown/wake flow, VTS header mark and updated touch coverage require their own acceptance checks. Source-rendered previews use synthetic values; they do not prove physical behavior.
+Settings → LoRa cycles between Meshtastic, MeshCore and Both / slow scan while capture is stopped. The choice saves to SD. The LoRa view shows the active receive profile, switching countdown and decoded observations; `[MT]` and `[MC]` distinguish protocols. See [combined mesh settings](COMBINED_MESH.md) and the [release validation record](RELEASE_0_5_0.md).
 
 | Settings | First-run region picker | Power confirmation |
 | --- | --- | --- |
