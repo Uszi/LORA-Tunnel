@@ -9,6 +9,8 @@
 #include "scanners.h"
 #include "logger.h"
 #include "mesh_header.h"
+#include <TunnelMeshDecode.h>
+#include <new>
 #include "ui.h"
 #include "version.h"
 #include "shutdown_guard.h"
@@ -36,6 +38,7 @@ esp_timer_handle_t shutdownTimer=nullptr;
 bool quietActive=false,quietRadios=false,quietDisplay=false;
 esp_timer_handle_t quietTimer=nullptr;
 uint32_t totals[3]{},lastAlert=0,reconTotal=0;
+uint32_t meshDecoded=0,meshUnknown=0;
 alerts::Scheduler alertPlayer(hw::alertTone);
 alerts::AlertHistory alertHistory;
 bool alertHistoryNotice=false;
@@ -97,6 +100,16 @@ void consume(Observation& event) {
   if(type>2) return;
   ++totals[type];
   bool alertAllowed=true;
+  if(event.kind==Kind::Lora) {
+    new (&event.mesh_data) mesh::Result{};
+    if(event.radio.protocol==1)
+      mesh::decodeMeshtastic(event.raw,event.length,mesh::platformCrypto(),config.mesh_keys,
+                            config.mesh_key_count,config.decode_public,event.mesh_data);
+    else if(event.radio.protocol==2)
+      mesh::decodeMeshCore(event.raw,event.length,mesh::platformCrypto(),event.mesh_data);
+    if(event.mesh_data.status==mesh::Status::Decoded && event.mesh_data.authentication!=mesh::Authentication::Failed)++meshDecoded; else ++meshUnknown;
+    strlcpy(event.name,event.mesh_data.name[0]?event.mesh_data.name:event.mesh_data.short_name,sizeof(event.name));
+  }
   if(event.mode==CaptureMode::Recon) {
     const bool complete=!event.truncated;
     if(event.kind==Kind::Wifi) {
@@ -122,12 +135,17 @@ void consume(Observation& event) {
     ++reconTotal;
   }
   logObservation(event);
+  // Keep failed signatures as evidence in the log, but do not let a forged
+  // advert replace the cached name/position for a legitimate public key.
+  if(event.kind==Kind::Lora && event.mesh_data.authentication==mesh::Authentication::Failed)return;
   // Preserve every enabled match in the log and bounded summary cache; display
   // and buzzer thresholds remain independent when building the view/alert.
   char identity[24]; strlcpy(identity,event.address,sizeof(identity));
   if(event.kind==Kind::Lora) {
     lt::MeshHeader header;
-    if(lt::parseMeshHeader(event.raw,event.length,header)) snprintf(identity,sizeof(identity),"?%08lx",(unsigned long)header.from);
+    if(event.mesh_data.protocol==mesh::Protocol::MeshCore && event.mesh_data.has_node) {
+      snprintf(identity,sizeof(identity),"MC:%02x%02x%02x%02x",event.mesh_data.public_key[0],event.mesh_data.public_key[1],event.mesh_data.public_key[2],event.mesh_data.public_key[3]);
+    } else if(event.radio.protocol==1 && lt::parseMeshHeader(event.raw,event.length,header)) snprintf(identity,sizeof(identity),"MT:%08lx",(unsigned long)header.from);
     else {
       // Packet fingerprint only, never a claimed LoRa device identity.
       uint32_t hash=2166136261u;
@@ -138,13 +156,24 @@ void consume(Observation& event) {
   Summary* selected=nullptr;
   Summary* oldest=&summaries[0];
   for(auto& summary:summaries) {
-    if(summary.used && summary.kind==event.kind && summary.addressType==event.address_type && !strcmp(summary.id,identity)) { selected=&summary; break; }
+    const bool sameMeshKey=event.kind!=Kind::Lora || !event.mesh_data.has_node ||
+        event.mesh_data.protocol!=mesh::Protocol::MeshCore || !memcmp(summary.evidence,event.mesh_data.public_key,32);
+    if(summary.used && summary.kind==event.kind && summary.addressType==event.address_type && !strcmp(summary.id,identity) && sameMeshKey) { selected=&summary; break; }
     if(!summary.used) oldest=&summary;
     else if(oldest->used && summary.last<oldest->last) oldest=&summary;
   }
   if(!selected) { selected=oldest; *selected=Summary{}; selected->used=true; selected->kind=event.kind; selected->addressType=event.address_type; strlcpy(selected->id,identity,sizeof(selected->id)); }
   selected->last=event.mono_ms; selected->rssi=event.rssi; ++selected->seen;
-  strlcpy(selected->name,event.name,sizeof(selected->name));
+  // A later position/telemetry packet must not erase an earlier node name.
+  if(event.name[0] || event.kind!=Kind::Lora)strlcpy(selected->name,event.name,sizeof(selected->name));
+  if(event.kind==Kind::Lora) {
+    const auto& decoded=event.mesh_data;
+    if(decoded.protocol==mesh::Protocol::MeshCore && decoded.has_node)
+      memcpy(selected->evidence,decoded.public_key,32); // Full key for dedup; short UI ID is display-only.
+    if(decoded.has_position)snprintf(selected->label,sizeof(selected->label),"Node %.5f %.5f",decoded.latitude_i*1e-7,decoded.longitude_i*1e-7);
+    else if(decoded.has_text)snprintf(selected->label,sizeof(selected->label),"Text: %.24s",decoded.text);
+    else if(!selected->label[0])snprintf(selected->label,sizeof(selected->label),"%s / %s",mesh::statusName(decoded.status),mesh::authenticationName(decoded.authentication));
+  }
   if(event.mode==CaptureMode::Recon) {
     selected->category=event.detection.category;
     selected->confidence=event.detection.confidence;
@@ -158,7 +187,7 @@ void drain(unsigned limit=48) {
   while(limit-- && xQueueReceive(captureQueue,static_cast<CaptureObservation*>(&event),0)==pdTRUE) {
     // The ingress copy intentionally excludes classification. A reused record
     // must never carry a previous Recon result into Wardriver or truncated BLE.
-    event.detection=recon::Result{};
+    new (&event.detection) recon::Result{};
     consume(event);
   }
 }
@@ -168,6 +197,7 @@ __attribute__((noinline)) bool logSessionMarker(Kind kind,CaptureMode mode,uint3
   Observation marker;
   marker.kind=kind; marker.mode=mode; marker.session=id;
   marker.gps=currentFix(); marker.mono_ms=esp_timer_get_time()/1000;
+  if(kind==Kind::Stop)new (&marker.radio_coverage) lora_scan::Status(loraScanStatus());
   return logObservation(marker);
 }
 void requestSession() {
@@ -196,6 +226,7 @@ void requestSession() {
   const CaptureMode mode=model.recon?CaptureMode::Recon:CaptureMode::Wardriver;
   if(!logSessionMarker(Kind::Start,mode,id)) return;
   memset(totals,0,sizeof(totals));
+  meshDecoded=meshUnknown=0;
   reconTotal=0;
   for(auto& summary:summaries) summary=Summary{};
   if(mode==CaptureMode::Recon) {alertHistory.reset();alertHistoryNotice=false;lastAlert=0;}
@@ -244,6 +275,18 @@ void performActions() {
     case ui::Action::ToggleAlerts:
       config.buzzer=action.field==1;
       if(!config.buzzer)alertPlayer.setEnabled(false);
+      break;
+    case ui::Action::SaveLoRaMode:
+      if(capturing || stopping || !loggerIdle() || uploaderBusy())strlcpy(model.notice,"Stop and save before changing LoRa",sizeof(model.notice));
+      else if(!storageReady())strlcpy(model.notice,"Insert SD to save LoRa scan mode",sizeof(model.notice));
+      else {
+        xSemaphoreTake(busMutex,portMAX_DELAY);
+        const bool saved=saveLoRaMode(uint8_t(action.field));
+        xSemaphoreGive(busMutex);
+        if(!saved)strlcpy(model.notice,"Mode unavailable here or save failed",sizeof(model.notice));
+        else if(!scannersConfigureLoRa())strlcpy(model.notice,"Mode saved; radio initialization failed",sizeof(model.notice));
+        else strlcpy(model.notice,"LoRa scan mode saved to SD",sizeof(model.notice));
+      }
       break;
     case ui::Action::SaveRegion:
       if(capturing || stopping || !loggerIdle() || uploaderBusy()) strlcpy(model.notice,"Stop and save before changing region",sizeof(model.notice));
@@ -314,8 +357,13 @@ void refreshModel() {
     snprintf(model.gps_detail,sizeof(model.gps_detail),"NO FIX / GSV %d visible / %u used",gps.satellites_visible,fix.satellites);
   else strlcpy(model.gps_detail,"GNSS data OK / acquiring fix",sizeof(model.gps_detail));
   strlcpy(model.phase,stopping?"Saving":scanPhase(),sizeof(model.phase));
-  strlcpy(model.profile,config.lora_enabled?config.profile:"OFF: Settings > LoRa region",sizeof(model.profile));
+  const auto radioStatus=loraScanStatus();
+  model.lora_mode=config.lora_mode;model.mesh_decoded=meshDecoded;model.mesh_unknown=meshUnknown;
+  strlcpy(model.profile,config.lora_enabled?radioStatus.active.name:"OFF: Settings > LoRa region",sizeof(model.profile));
+  if(radioStatus.combined)snprintf(model.lora_detail,sizeof(model.lora_detail),"Both / next %lus / decoded %lu",(unsigned long)((radioStatus.remaining_ms+999)/1000),(unsigned long)meshDecoded);
+  else snprintf(model.lora_detail,sizeof(model.lora_detail),"Locked / decoded %lu / other %lu",(unsigned long)meshDecoded,(unsigned long)meshUnknown);
   memset(model.recent,0,sizeof(model.recent));
+  memset(model.mesh_recent_detail,0,sizeof(model.mesh_recent_detail));
   for(unsigned type=0;type<3;type++) {
     bool chosen[board::SUMMARY_RECORDS]{};
     for(unsigned line=0;line<4;line++) {
@@ -325,7 +373,11 @@ void refreshModel() {
       chosen[pick]=true;
       const Summary& summary=summaries[pick];
       const char* title=summary.name[0]?summary.name:summary.id;
-      snprintf(model.recent[type][line],48,"%.25s %ddBm x%lu",title,summary.rssi,(unsigned long)summary.seen);
+      if(type==2) {
+        const char* badge=!strncmp(summary.id,"MT:",3)?"MT":!strncmp(summary.id,"MC:",3)?"MC":"?";
+        snprintf(model.recent[type][line],48,"[%s] %.21s %ddBm x%lu",badge,title,summary.rssi,(unsigned long)summary.seen);
+        strlcpy(model.mesh_recent_detail[line],summary.label,sizeof(model.mesh_recent_detail[line]));
+      } else snprintf(model.recent[type][line],48,"%.25s %ddBm x%lu",title,summary.rssi,(unsigned long)summary.seen);
     }
   }
   memset(model.recon_recent,0,sizeof(model.recon_recent));

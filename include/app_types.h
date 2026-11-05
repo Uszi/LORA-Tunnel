@@ -3,6 +3,8 @@
 #include <atomic>
 #include <type_traits>
 #include "recon.h"
+#include "mesh_decode.h"
+#include "lora_scan.h"
 
 namespace tunnel {
 constexpr size_t RAW_MAX = 1024;
@@ -38,10 +40,14 @@ struct CaptureObservation {
   uint16_t ble_adv_length = 0;
   uint8_t ssid_length = 0, ssid_raw[32]{};
   uint8_t raw[RAW_MAX]{};
+  lora_scan::Snapshot radio;
 };
 // The writer retains the complete classified evidence, including Remote ID.
 struct Observation : CaptureObservation {
-  recon::Result detection;
+  // Wardriver mesh decoding and Recon classification are mutually exclusive.
+  // Reuse writer-record storage instead of reserving both in every queue slot.
+  union { recon::Result detection; mesh::Result mesh_data; lora_scan::Status radio_coverage; };
+  Observation():detection{} {}
 };
 static_assert(std::is_trivially_copyable<CaptureObservation>::value, "Ingress queue requires byte-copyable records");
 static_assert(std::is_trivially_copyable<Observation>::value, "Writer queue requires byte-copyable records");

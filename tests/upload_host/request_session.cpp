@@ -1,14 +1,16 @@
 #include <Arduino.h>
 #include <atomic>
 #include <iostream>
+#include <new>
 #include "alert_tones.h"
+#include "lora_scan.h"
 using namespace tunnel;
 uint32_t hostMillis=1000;
 enum class CaptureMode {Wardriver,Recon};
 enum class Kind {Wifi,Ble,Lora,Start,Stop};
 namespace ui {enum class Action{ToggleAlerts,Shutdown};}
 struct Fix{unsigned sample=0;};
-struct Observation {Kind kind=Kind::Start;CaptureMode mode=CaptureMode::Wardriver;unsigned session=0;Fix gps;uint64_t mono_ms=0;unsigned untouched=17;uint8_t address_type=0;char address[24]{};recon::Result detection;};
+struct Observation {Kind kind=Kind::Start;CaptureMode mode=CaptureMode::Wardriver;unsigned session=0;Fix gps;uint64_t mono_ms=0;unsigned untouched=17;uint8_t address_type=0;char address[24]{};recon::Result detection;lora_scan::Status radio_coverage;};
 struct Summary{bool used=false;char id[24]{};};
 struct Model {char notice[100]{},shutdown_error[100]{};bool recon=false;} model;
 struct Config {bool buzzer=true;unsigned recon_alert_min=2;} config;
@@ -18,6 +20,9 @@ bool shutdownPending=false,quietActive=false,startAfterUpload=false,ready=true,s
 bool configScratchStartup=false;
 bool uploadBusy=false,bleReady=true,storage=true,loggerFree=true,cancelled=false,acceptMarker=true;
 std::atomic<bool> capturing{false};std::atomic<unsigned> sessionId{0};unsigned totals[3]{},reconTotal=0;
+unsigned meshDecoded=0,meshUnknown=0,coverageReads=0;
+lora_scan::Status coverageFixture;
+lora_scan::Status loraScanStatus(){++coverageReads;return coverageFixture;}
 std::atomic<CaptureMode> captureMode{CaptureMode::Wardriver};
 Summary summaries[32];unsigned starts=0,logged=0,radioStarts=0,drains=0,stops=0,fixReads=0;
 Observation lastMarker;
@@ -52,7 +57,7 @@ void scannersStart(){++radioStarts;}
 #include "request_session_actual.inc"
 unsigned checks=0;
 void expect(bool condition,const char* message){++checks;if(!condition){std::cerr<<"FAIL "<<message<<"\n";std::exit(1);}}
-void reset(){configScratchStartup=false;alertPlayer.setEnabled(false);alertHistory.reset();alertHistoryNotice=false;lastAlert=0;sounding=toneStarts=toneStops=0;audioReady=config.buzzer=true;config.recon_alert_min=2;hostMillis=1000;queueAlertOnDrain=false;drainSilent=stopSilent=endCaptureSilent=true;model.notice[0]=0;shutdownHadSession=false;for(auto& s:summaries)s=Summary{};shutdownPending=quietActive=startAfterUpload=stopping=uploadBusy=cancelled=false;ready=bleReady=storage=loggerFree=acceptMarker=true;capturing=false;model.recon=false;starts=logged=radioStarts=drains=stops=fixReads=0;captureMode=CaptureMode::Wardriver;sessionId=0;lastMarker=Observation{};}
+void reset(){configScratchStartup=false;alertPlayer.setEnabled(false);alertHistory.reset();alertHistoryNotice=false;lastAlert=0;sounding=toneStarts=toneStops=0;audioReady=config.buzzer=true;config.recon_alert_min=2;hostMillis=1000;queueAlertOnDrain=false;drainSilent=stopSilent=endCaptureSilent=true;model.notice[0]=0;shutdownHadSession=false;for(auto& s:summaries)s=Summary{};shutdownPending=quietActive=startAfterUpload=stopping=uploadBusy=cancelled=false;ready=bleReady=storage=loggerFree=acceptMarker=true;capturing=false;model.recon=false;starts=logged=radioStarts=drains=stops=fixReads=0;captureMode=CaptureMode::Wardriver;sessionId=0;lastMarker=Observation{};meshDecoded=meshUnknown=coverageReads=0;coverageFixture=lora_scan::Status{};}
 Observation detection(unsigned identity=1) {
  Observation event;event.kind=Kind::Ble;event.mode=CaptureMode::Recon;
  std::snprintf(event.address,sizeof(event.address),"02:00:00:00:%02x:%02x",(identity>>8)&255,identity&255);
@@ -155,18 +160,29 @@ int main(){
  reset();bleReady=false;requestSession();expect(logged==0&&starts==0&&!capturing,"failed BLE restoration cannot open a session");
  reset();uploadBusy=true;requestSession();expect(cancelled&&startAfterUpload&&logged==0,"Start cancels upload and defers opening");
  uploadBusy=false;bleReady=false;startAfterUpload=false;requestSession();expect(logged==0&&starts==0,"deferred Start remains closed after restore failure");
+ meshDecoded=7;meshUnknown=9;
  bleReady=true;requestSession();expect(logged==1&&starts==1&&radioStarts==1&&capturing,"restored BLE permits exactly one complete Start");
+ expect(meshDecoded==0&&meshUnknown==0&&coverageReads==0,"successful Start resets decoder totals without sampling stale prior-session coverage");
  expect(lastMarker.kind==Kind::Start&&lastMarker.mode==CaptureMode::Wardriver&&lastMarker.session==123&&lastMarker.gps.sample==42&&lastMarker.mono_ms==123456789&&lastMarker.untouched==17&&fixReads==1,"actual marker helper preserves Start fields, timing, and default initialization");
  reset();stopping=true;requestSession();expect(logged==0,"saving gate precedes session creation");
  reset();storage=false;requestSession();expect(logged==0,"missing storage cannot open session");
  reset();ready=false;requestSession();expect(logged==0,"boot readiness still gates Start");
- reset();acceptMarker=false;requestSession();expect(logged==1&&starts==0&&radioStarts==0&&!capturing,"failed Start marker does not start capture or radios");
+ reset();acceptMarker=false;meshDecoded=7;meshUnknown=9;requestSession();expect(logged==1&&starts==0&&radioStarts==0&&!capturing,"failed Start marker does not start capture or radios");
+ expect(meshDecoded==7&&meshUnknown==9,"failed Start does not erase the previous session's decoder totals");
  reset();model.recon=true;requestSession();expect(lastMarker.mode==CaptureMode::Recon&&captureMode==CaptureMode::Recon,"Recon Start marker retains chosen mode");
  const unsigned startLogged=logged;requestSession();
  expect(!capturing&&stopping&&stops==1&&drains==1&&logged==startLogged,"Stop halts producers and drains before queuing its marker");
+ coverageFixture.listen_ms[0]=30000;coverageFixture.listen_ms[1]=17000;
+ coverageFixture.received[0]=2;coverageFixture.received[1]=3;coverageFixture.switches=1;
+ coverageFixture.hop_timeouts=4;coverageFixture.hop_interruptions=5;coverageFixture.combined=true;
  model.recon=false;acceptMarker=false;loggerFree=false;serviceStopMarker();
  expect(stopping&&logged==startLogged+1&&drains==2,"full writer queue keeps Stop pending for retry");
  expect(lastMarker.kind==Kind::Stop&&lastMarker.mode==CaptureMode::Recon&&lastMarker.session==123&&lastMarker.gps.sample==42&&lastMarker.mono_ms==123456789&&lastMarker.untouched==17,"Stop marker retains session mode, identity, fix, timestamp and defaults");
+ expect(coverageReads==1&&lastMarker.radio_coverage.listen_ms[0]==30000&&lastMarker.radio_coverage.listen_ms[1]==17000&&
+     lastMarker.radio_coverage.received[0]==2&&lastMarker.radio_coverage.received[1]==3&&
+     lastMarker.radio_coverage.switches==1&&lastMarker.radio_coverage.hop_timeouts==4&&
+     lastMarker.radio_coverage.hop_interruptions==5&&lastMarker.radio_coverage.combined,
+     "Stop marker snapshots complete per-protocol listening, reception and hop diagnostics");
  acceptMarker=true;serviceStopMarker();
  expect(stopping&&logged==startLogged+2&&drains==3,"accepted Stop waits for the writer to finish");
  serviceStopMarker();expect(logged==startLogged+2&&drains==3,"accepted Stop is not queued or drained twice");

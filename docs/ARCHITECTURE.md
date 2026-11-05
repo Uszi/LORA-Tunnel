@@ -27,7 +27,7 @@ flowchart LR
   GNSS[GNSS UART / validity and age] --> Fix[Receiver fix snapshot]
   Drive[Wardriver / passive AP and BLE schedule] --> Q[Bounded observation queue]
   Recon[Recon / raw Wi-Fi and BLE schedule] --> Q
-  LoRa[Wardriver only / fixed SX1262 receive profile] --> Q
+  LoRa[Wardriver only / selected SX1262 receive profile] --> Q
   Fix --> Q
   Q --> Main[Main loop / classify and summarize]
   Main --> Cache[Board-sized bounded display summaries]
@@ -107,8 +107,11 @@ produce a claim that a complete packet was decoded. Heltec uses 48 ingress recor
 
 The main loop maintains 64 least-recently-seen summaries on Heltec and 32 on Cardputer. Eviction removes only
 the display summary, not observations already logged. Public and randomized
-BLE address types remain distinct. A LoRa candidate sender is prefixed `?`;
-unknown packets use a packet fingerprint, not an invented node identity.
+BLE address types remain distinct. LoRa summaries carry MT/MC protocol labels;
+Meshtastic sender IDs remain self-reported, and full MeshCore public keys are
+used for deduplication even though the screen shows a shortened ID. Failed
+advert signatures remain logged but cannot replace cached node details.
+Unknown packets use a packet fingerprint, not an invented node identity.
 Changing signal/location and later sightings remain observations even when the
 display suppresses duplicate rows.
 
@@ -208,9 +211,11 @@ The serial helper verifies recent command state and fails on missing status or
 restart/crash diagnostics, but cannot certify radio captures or SD content.
 
 The 0.4 uploader uses only configured home Wi-Fi, completed Wardriver sessions, validated TLS, independent destination/chunk checkpoints and bounded retries. Each service is explicitly enabled or manually requested. It runs only after capture and saving stop; a new Start cancels it and waits for teardown before scanner ownership resumes. Auth failures and uncertain receipts pause automatic resubmission. Native logs survive successful and failed uploads. [UPLOADS.md](UPLOADS.md) describes receipt contracts and software-test versus live-service evidence.
-After reliable fixed-profile reception, slow profile hopping can account for
-airtime and traffic density. MeshCore and optional known-key Meshtastic payload
-decoding remain later work; exported fields must never be fabricated.
+The 0.5.0-dev [combined mesh path](COMBINED_MESH.md) adds slow rotation between
+selected Meshtastic/MeshCore profiles and bounded protocol decoders after
+dequeue. Receive settings travel with each packet. Recon and mesh results
+share writer-record storage, keeping the existing queue capacities. Physical
+RF/crypto/timing acceptance remains separate from host fixtures and builds.
 
 ## Settings shutdown and wake
 

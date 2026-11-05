@@ -38,6 +38,13 @@ def factory(app=None):
 
 
 class CardputerPackageChecks(unittest.TestCase):
+    def test_development_validation_does_not_bypass_beta_packaging(self):
+        version = "0.5.0-dev"
+        data, app = factory(image(b"cardputer-adv-lora1262\0" + version.encode() + b"\0"))
+        self.assertEqual(package.validate_factory(data, version, app), app)
+        with self.assertRaisesRegex(ValueError, "Expected beta version"):
+            package.package(None, None, version)
+
     def test_matching_factory_and_relocatable_app(self):
         data, app = factory()
         self.assertEqual(package.validate_factory(data, "0.4.0-beta.1", app), app)

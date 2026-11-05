@@ -14,9 +14,9 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 ENV = "heltec-v4-r8-tft"
-LIBRARIES = ("ArduinoJson", "LovyanGFX", "NimBLE-Arduino", "RadioLib", "TinyGPSPlus")
+LIBRARIES = ("ArduinoJson", "LovyanGFX", "NimBLE-Arduino", "RadioLib", "TinyGPSPlus", "Crypto")
 CARDPUTER_ENV = "cardputer-adv-lora1262"
-CARDPUTER_LIBRARIES = ("ArduinoJson", "NimBLE-Arduino", "RadioLib", "TinyGPSPlus", "M5Cardputer", "M5Unified", "M5GFX", "IRremote")
+CARDPUTER_LIBRARIES = ("ArduinoJson", "NimBLE-Arduino", "RadioLib", "TinyGPSPlus", "M5Cardputer", "M5Unified", "M5GFX", "IRremote", "Crypto")
 EXCLUDED_PARTS = {".git", ".github", "__pycache__", ".pio", ".pio-core"}
 CARDPUTER_BUILD_SCRIPTS = ("tools/cardputer_build.py", "tools/cardputer_linker.py", "tools/cardputer_linker_pio.py")
 CARDPUTER_LINKER_OUTPUTS = ("sections.ld", "report.json", "verification.json")

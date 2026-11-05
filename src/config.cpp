@@ -136,6 +136,8 @@ void applyRegion(const char* code) {
   config.sf=profile ? profile->sf : 11;
   config.cr=profile ? profile->cr : 5;
   config.preamble=profile ? profile->preamble : 16;
+  strcpy(config.meshcore_profile,"AUTO");
+  if(!lora_scan::meshCoreProfile(code,"AUTO"))config.lora_mode=0;
   if(profile) snprintf(config.profile,sizeof(config.profile),"%s LongFast",code);
   else strlcpy(config.profile,"Choose region",sizeof(config.profile));
 }
@@ -162,6 +164,10 @@ void seedDocument(JsonDocument& document) {
   document["lora"]["coding_rate_denominator"]=config.cr;
   document["lora"]["preamble_symbols"]=config.preamble;
   document["lora"]["lna"]=config.lna;
+  document["lora"]["mode"]=loraModeName(config.lora_mode);
+  document["lora"]["dwell_ms"]=config.lora_dwell_ms;
+  document["lora"]["meshcore_profile"]=config.meshcore_profile;
+  document["lora"]["decode_public"]=config.decode_public;
   document["ui"]["buttons_enabled"]=config.buttons_enabled;
   document["recon"]["buzzer"]=config.buzzer;
   document["recon"]["display_min"]=reconConfidenceKey(static_cast<recon::Confidence>(config.recon_display_min));
@@ -287,6 +293,10 @@ bool loadConfig() {
     config.sf = static_cast<uint8_t>(radioSettings.sf);
     config.cr = static_cast<uint8_t>(radioSettings.cr);
     config.preamble = static_cast<uint16_t>(radioSettings.preamble);
+    config.lora_mode=radioSettings.mode;
+    config.lora_dwell_ms=radioSettings.dwell_ms;
+    strcpy(config.meshcore_profile,radioSettings.meshcore_profile);
+    parseMeshKeys(radio,config.mesh_keys,config.mesh_key_count,config.decode_public);
     const auto preferences=parseReconPreferences(document.as<JsonVariantConst>());
     config.buttons_enabled=preferences.buttons_enabled;
     config.buzzer=preferences.buzzer;
@@ -372,6 +382,19 @@ bool saveAutoUpload(int service,bool enabled) {
   if(!commitPrepared(document,mainValid,nullptr,nullptr,nullptr,names[service],enabled,operation.fileBuffer())) return false;
   bool* values[]={&config.auto_wigle,&config.auto_wardrift,&config.auto_wdgwars};
   *values[service]=enabled;
+  return true;
+}
+bool saveLoRaMode(uint8_t mode) {
+  if(mode>2 || (mode && !lora_scan::meshCoreProfile(config.region,config.meshcore_profile)))return false;
+  configAllocationFailed=false; sourceOpenFailed=false;
+  ScopedConfigDocument operation;
+  auto& document=operation.document;
+  if(document.capacity()<documentCapacity) {configAllocationFailed=true;return false;}
+  const bool mainValid=prepareSave(document,operation.fileBuffer());
+  document["lora"]["mode"]=loraModeName(mode);
+  if(!commitPrepared(document,mainValid,nullptr,nullptr,nullptr,nullptr,false,operation.fileBuffer()))return false;
+  // commitPrepared readback validates the full radio section before rotation.
+  config.lora_mode=mode;
   return true;
 }
 RegionSaveResult saveLoRaRegion(const char* code,bool sdMounted) {

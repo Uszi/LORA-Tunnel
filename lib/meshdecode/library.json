@@ -1,0 +1,7 @@
+{
+  "name": "TunnelMeshDecode",
+  "version": "0.1.0",
+  "description": "Bounded passive Meshtastic and MeshCore observation decoders",
+  "license": "MIT",
+  "build": {"flags": "-I../../include"}
+}

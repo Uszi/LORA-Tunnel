@@ -10,7 +10,12 @@
     "spreading_factor": 11,
     "coding_rate_denominator": 5,
     "preamble_symbols": 16,
-    "lna": false
+    "lna": false,
+    "mode": "meshtastic",
+    "dwell_ms": 30000,
+    "meshcore_profile": "AUTO",
+    "decode_public": true,
+    "meshtastic_keys": []
   },
   "schedule": {
     "wifi_dwell_ms": 120,

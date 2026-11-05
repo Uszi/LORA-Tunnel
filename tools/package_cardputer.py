@@ -129,8 +129,7 @@ def validate_publication(record, factory_sha, app_sha):
     return "scoped-beta"
 
 
-def package(build, output, version):
-    require(bool(re.fullmatch(r"\d+\.\d+\.\d+-beta\.\d+", version)), "Expected beta version")
+def validate_build(build, version):
     app = (build / "firmware.bin").read_bytes()
     factory = (build / "firmware.factory.bin").read_bytes()
     validate_factory(factory, version, app)
@@ -143,6 +142,12 @@ def package(build, output, version):
     # esptool merge-bin may change the boot flash-mode byte and its digest.
     require(factory[24:len(bootloader) - 32] == bootloader[24:-32],
             "Factory bootloader differs from build")
+    return app, factory
+
+
+def package(build, output, version):
+    require(bool(re.fullmatch(r"\d+\.\d+\.\d+-beta\.\d+", version)), "Expected beta version")
+    app, factory = validate_build(build, version)
     require(not output.exists() or not any(output.iterdir()), "Choose an empty output directory")
     output.mkdir(parents=True, exist_ok=True)
     base = f"LORA-Tunnel-{version}-Cardputer-ADV-LoRa1262"
@@ -165,7 +170,20 @@ def package(build, output, version):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--build", type=Path, default=Path(".pio/build") / TARGET)
-    parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--version", default="0.4.0-beta.1")
+    parser.add_argument("--output", type=Path)
+    parser.add_argument("--version")
+    parser.add_argument("--check-only", action="store_true", help="Validate current-source development or beta images without packaging/publication")
     args = parser.parse_args()
-    package(args.build, args.output, args.version)
+    version = args.version
+    if version is None:
+        source = (Path(__file__).resolve().parents[1] / "include/version.h").read_text(encoding="utf-8")
+        match = re.search(r'^#define TUNNEL_VERSION "([^"]+)"$', source, re.MULTILINE)
+        require(match is not None, "Expected one source version marker")
+        version = match.group(1)
+    if args.check_only:
+        validate_build(args.build, version)
+        print(f"Validated Cardputer factory and Launcher application for {version}; no publication or hardware acceptance implied")
+    else:
+        if args.output is None:
+            parser.error("--output is required when packaging")
+        package(args.build, args.output, version)

@@ -74,6 +74,17 @@ class WebReleaseChecks(unittest.TestCase):
                 web.read_source(p, "0.2.2-beta.1")
             self.assertNotIn("never-print-this", str(result.exception))
 
+    def test_mesh_keys_are_rejected_without_disclosure(self):
+        with tempfile.TemporaryDirectory() as folder:
+            p = Path(folder) / "source.zip"
+            self.archive(p, {"include/version.h": '#define TUNNEL_VERSION "0.2.2-beta.1"',
+                             "sdcard/lora-tunnel/config.example.json": json.dumps({
+                                 "credentials": {}, "lora": {"meshtastic_keys": [
+                                     {"name": "test", "key_hex": "never-print-this"}]}})})
+            with self.assertRaisesRegex(ValueError, "mesh keys must be empty") as result:
+                web.read_source(p, "0.2.2-beta.1")
+            self.assertNotIn("never-print-this", str(result.exception))
+
     def test_manifest_hash_and_inventory_must_match(self):
         with tempfile.TemporaryDirectory() as folder:
             p = Path(folder) / "source.zip"

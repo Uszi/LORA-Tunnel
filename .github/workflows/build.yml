@@ -33,6 +33,8 @@ jobs:
         run: python tools/check_uploader.py
       - name: Capture queue capacity and lossless record memory
         run: python tools/check_capture_memory.py
+      - name: Actual LoRa profile switching with offline radio fixtures
+        run: python tools/check_lora_hopping.py
       - name: Configuration scratch lifetime and allocation failures
         run: python tools/check_config_memory.py
       - name: Complete logger evidence within the Cardputer JSON arena
@@ -41,12 +43,14 @@ jobs:
         run: python -m platformio run -e heltec-v4-r8-tft
       - name: Compile Cardputer ADV with Cap LoRa-1262
         run: python -m platformio run -e cardputer-adv-lora1262
+      - name: Independent encrypted and signed mesh packet fixtures
+        run: python tools/check_mesh_crypto.py
       - name: Cardputer linker policy and real pinned SDK drift checks
         run: python -m unittest discover -s tests -p test_cardputer_linker.py -v
       - name: Cardputer keyboard mapping against pinned upstream headers
         run: python tools/check_cardputer_keyboard.py
       - name: Validate Cardputer factory and Launcher application
-        run: python tools/package_cardputer.py --build .pio/build/cardputer-adv-lora1262 --output dist/cardputer-check --version 0.4.0-beta.1
+        run: python tools/package_cardputer.py --build .pio/build/cardputer-adv-lora1262 --check-only
       - name: Check public source package inventory
         run: python tools/package_source.py dist/source-check.zip
 

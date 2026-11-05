@@ -121,6 +121,12 @@ int main(int argc,char** argv) {
   model.running=true;focus=3;const size_t uploadCount=sent.size();key(input::KeyCode::Select,model);expect(sent.size()==uploadCount,"manual upload blocked during capture");expect(screenHas("Stop and save before upload"),"blocked manual upload has visible explanation");
   model.running=false;key(input::KeyCode::Select,model);expect(sent.back().action==ui::Action::UploadNow && sent.back().field==0,"manual WiGLE upload requested");
   model.upload_busy=true;focus=6;key(input::KeyCode::Select,model);expect(sent.back().action==ui::Action::CancelUpload,"upload cancellation reachable");model.upload_busy=false;
+  show(Page::Settings);focus=6;model.lora_mode=0;key(input::KeyCode::Select,model);
+  expect(sent.back().action==ui::Action::SaveLoRaMode && sent.back().field==1,"MeshCore scan mode reachable");
+  model.lora_mode=1;key(input::KeyCode::Select,model);
+  expect(sent.back().field==2,"Combined scan mode reachable");
+  model.lora_mode=2;capture(output,"settings-combined",model);key(input::KeyCode::Select,model);
+  expect(sent.back().field==0,"Meshtastic lock reachable from combined mode");
   show(Page::Settings);focus=5;key(input::KeyCode::Select,model);expect(page==Page::Power && focus==0,"Power defaults to Cancel");capture(output,"power",model);
   const size_t powerCount=sent.size();key(input::KeyCode::Select,model);expect(page==Page::Settings && sent.size()==powerCount,"Power Cancel emits no shutdown");
   focus=5;key(input::KeyCode::Select,model);key(input::KeyCode::Right,model);key(input::KeyCode::Select,model);expect(sent.back().action==ui::Action::Shutdown,"Power confirmation requests shutdown");

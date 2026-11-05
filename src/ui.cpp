@@ -223,7 +223,8 @@ void wardriver(const ui::Model& m) {
     any = true;
     gfx().fillRect(8, 140 + i * 26, 3, 16, GREEN);
     label(row, 16, 140 + i * 26, WHITE, 1, 35);
-    if (strnlen(row, 48) > 35) label(row + 35, 16, 150 + i * 26, MUTED, 1, 12);
+    if(tab==2)label(m.mesh_recent_detail[i],16,150+i*26,MUTED,1,35);
+    else if (strnlen(row, 48) > 35) label(row + 35, 16, 150 + i * 26, MUTED, 1, 12);
   }
   gfx().fillRect(8, 246, 224, 30, BG);
   if (!any) {
@@ -243,6 +244,7 @@ void wardriver(const ui::Model& m) {
     label(detail, 9, 262, AMBER, 1, 37);
   }
   else if (m.notice[0]) label(m.notice, 9, 262, AMBER, 1, 37);
+  else if(tab==2)label(m.lora_detail,9,262,CYAN,1,37);
   else label(m.utc[0] ? m.utc : "Waiting for GNSS time", 9, 262, MUTED, 1, 37);
   sessionControls(m);
 }
@@ -358,8 +360,8 @@ void settings(const ui::Model& m) {
   button(8,52,224,38,region,GREEN);
   button(8,102,224,38,"CONNECTION KEYS",CYAN);
   button(8,152,224,38,"POWER",AMBER);
-  label("Power asks before stopping a drive.",12,207,MUTED,1,36);
-  label("Region applies to LoRa reception.",12,224,MUTED,1,36);
+  const char* modes[]={"LORA: MESHTASTIC", "LORA: MESHCORE", "LORA: BOTH / SLOW SCAN"};
+  button(8,202,224,32,modes[m.lora_mode<=2?m.lora_mode:0],GREEN);
   if(m.notice[0]) wrapped(m.notice,12,246,sizeof(m.notice),AMBER);
   button(8,280,108,32,"< BACK",CYAN);
   button(124,280,108,32,"RETRY SD",GREEN);
@@ -527,6 +529,7 @@ void touchAction(uint16_t x, uint16_t y, const ui::Model& m) {
     if(inside(x,y,8,52,224,38)) openRegions(m,false);
     else if(inside(x,y,8,102,224,38)) setPage(Page::Credentials);
     else if(inside(x,y,8,152,224,38)) { powerDialog=true; focusIndex=-1; }
+    else if(inside(x,y,8,202,224,32) && onAction)onAction(ui::Action::SaveLoRaMode,(m.lora_mode+1)%3,"");
     else if(inside(x,y,8,280,108,32)) setPage(settingsParent);
     else if(inside(x,y,124,280,108,32) && onAction) onAction(ui::Action::RetryStorage,0,"");
   } else if (page == Page::Regions) {
@@ -611,6 +614,7 @@ size_t focusTargets(const ui::Model& m, Rect targets[MAX_TARGETS]) {
     add(8, 280, 224, 32);
   } else if (page == Page::Settings) {
     add(8,52,224,38); add(8,102,224,38); add(8,152,224,38);
+    add(8,202,224,32);
     add(8,280,108,32); add(124,280,108,32);
   } else if (page == Page::Regions) {
     for(unsigned row=0;row<REGIONS_PER_PAGE;++row) {

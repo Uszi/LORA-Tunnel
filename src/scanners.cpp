@@ -166,6 +166,12 @@ SX1262 radio=new Module(board::LORA_CS,board::LORA_IRQ,board::LORA_RESET,board::
 std::atomic<bool> radioIRQ{false}, wifiDone{false};
 bool radioOK=false;
 bool radioInitialized=false, radioInitAttempted=false;
+lora_scan::Snapshot radioProfiles[2];
+lora_scan::Status radioStatus;
+lora_scan::Dwell radioDwell;
+uint8_t radioSlot=0;
+bool radioListening=false, hopDeferred=false;
+uint32_t radioListenAt=0, maximumPacketMs=60000;
 enum class RadioTransition { None, Receive, Standby };
 RadioTransition radioPending=RadioTransition::None;
 // All radio operations run from the main task. The IRQ only sets a flag.
@@ -206,6 +212,46 @@ ScanAp aps[64];
 uint16_t wifiResultCount=0,wifiResultNext=0;
 
 void IRAM_ATTR onRadio() { radioIRQ.store(true,std::memory_order_relaxed); }
+void accountRadioListen() {
+  const uint32_t now=millis();
+  if(radioListening) {
+    const uint32_t elapsed=now-radioListenAt;
+    auto& count=radioStatus.listen_ms[radioSlot];
+    count=elapsed>UINT32_MAX-count?UINT32_MAX:count+elapsed;
+  }
+  radioListenAt=now;
+}
+void stopRadioListen() {accountRadioListen();radioListening=false;}
+int armRadioReceive() {
+  // Preamble status is polled during a due hop, never routed to the ISR.
+  const int state=radio.startReceive(RADIOLIB_SX126X_RX_TIMEOUT_INF,
+      RADIOLIB_IRQ_RX_DEFAULT_FLAGS | (1UL<<RADIOLIB_IRQ_PREAMBLE_DETECTED),
+      RADIOLIB_IRQ_RX_DEFAULT_MASK);
+  radioListening=state==RADIOLIB_ERR_NONE;
+  radioListenAt=millis();
+  return state;
+}
+bool applyRadioProfile(const lora_scan::Snapshot& profile,bool initialize) {
+  int state=initialize?radio.begin(profile.frequency_mhz,profile.bandwidth_khz,
+      profile.sf,profile.cr,profile.sync_word,0,profile.preamble_symbols,
+      board::LORA_TCXO_VOLTS,board::LORA_USE_LDO):radio.standby();
+  if(state==RADIOLIB_ERR_NONE && !initialize) state=radio.setFrequency(profile.frequency_mhz);
+  if(state==RADIOLIB_ERR_NONE && !initialize) state=radio.setBandwidth(profile.bandwidth_khz);
+  if(state==RADIOLIB_ERR_NONE && !initialize) state=radio.setSpreadingFactor(profile.sf);
+  if(state==RADIOLIB_ERR_NONE && !initialize) state=radio.setCodingRate(profile.cr);
+  if(state==RADIOLIB_ERR_NONE && !initialize) state=radio.setSyncWord(profile.sync_word);
+  if(state==RADIOLIB_ERR_NONE && !initialize) state=radio.setPreambleLength(profile.preamble_symbols);
+  if(state==RADIOLIB_ERR_NONE) state=radio.explicitHeader();
+  if(state==RADIOLIB_ERR_NONE) state=radio.setCRC(2);
+  if(state==RADIOLIB_ERR_NONE) state=radio.invertIQ(false);
+  if(state==RADIOLIB_ERR_NONE) state=radio.setDio2AsRfSwitch(true);
+  if(state!=RADIOLIB_ERR_NONE) return false;
+  // Explicit headers may report a different coding rate. Twice the configured
+  // 255-byte airtime plus margin safely spans CR4/8 in the supported profiles.
+  const uint64_t estimate=(uint64_t(radio.getTimeOnAir(255))+999)/1000*2+2000;
+  maximumPacketMs=static_cast<uint32_t>(std::min(uint64_t(60000),estimate));
+  return true;
+}
 void serviceRadioTransition() {
   if(radioPending==RadioTransition::None) return;
   if(!radioInitialized) { radioPending=RadioTransition::None; return; }
@@ -217,10 +263,12 @@ void serviceRadioTransition() {
       capturing.load() && captureMode.load()==CaptureMode::Wardriver;
   radioPending=RadioTransition::None;
   radioIRQ=false;
+  stopRadioListen();
   bool ok=radio.standby()==RADIOLIB_ERR_NONE;
   if(ok && receive) {
     hw::setLoRaFrontend(true,config.lna);
-    ok=hw::loraFrontendPresent() && radio.startReceive()==RADIOLIB_ERR_NONE;
+    ok=hw::loraFrontendPresent() && armRadioReceive()==RADIOLIB_ERR_NONE;
+    if(ok) radioDwell.reset(millis(),config.lora_dwell_ms);
   }
   if(!ok) { ++counters.radio_errors; radioOK=false; }
   if(!ok || !receive) hw::setLoRaFrontend(false);
@@ -447,14 +495,12 @@ void serviceWifiResults() {
   }
   if(wifiResultNext==wifiResultCount) { ++counters.scan_cycles; startBle(); }
 }
-void serviceLoRa() {
-  // Service at most one completed frame per loop so other work stays bounded.
-  // Radio FIFO/metadata are consumed before the Wi-Fi result batch can delay us.
-  if(!radioOK || radioPending!=RadioTransition::None || !radioIRQ.load()) return;
-  RadioBusLock lock(0);
-  if(!lock.held || !radioIRQ.exchange(false)) return;
+// Caller owns the radio bus. Also used after standby at a profile boundary to
+// preserve a packet that completed between the pre-hop check and standby.
+void readLoRaPacketLocked(bool rearm) {
   CaptureObservation event;
   event.kind=Kind::Lora;
+  event.radio=radioProfiles[radioSlot];
   bool received=false;
   const size_t length=radio.getPacketLength();
   if(length==0 || length>LORA_CAPTURE_MAX) {
@@ -474,12 +520,60 @@ void serviceLoRa() {
   }
   // Rearm before GPS snapshotting or queue submission. Even when rearm fails,
   // preserve the frame already received successfully and report the radio fault.
-  if(radio.startReceive()!=RADIOLIB_ERR_NONE) {
-    ++counters.radio_errors;
-    radioOK=false;
-    hw::setLoRaFrontend(false);
+  if(rearm) {
+    stopRadioListen();
+    if(armRadioReceive()!=RADIOLIB_ERR_NONE) {
+      ++counters.radio_errors;
+      radioOK=false;
+      hw::setLoRaFrontend(false);
+    }
   }
-  if(received) submit(event);
+  if(received) {++radioStatus.received[radioSlot];submit(event);}
+}
+void serviceLoRa() {
+  // Service at most one completed frame before any due hop or Wi-Fi batch.
+  if(!radioOK || radioPending!=RadioTransition::None || !radioIRQ.load()) return;
+  RadioBusLock lock(0);
+  if(!lock.held || !radioIRQ.exchange(false)) return;
+  readLoRaPacketLocked(true);
+}
+void serviceRadioHop() {
+  if(!radioOK || !radioStatus.combined || !radioListening ||
+     radioPending!=RadioTransition::None || !radioDwell.due(millis())) return;
+  RadioBusLock lock(0);
+  if(!lock.held) return;
+  const uint32_t irq=radio.getIrqFlags();
+  const uint32_t activity=RADIOLIB_SX126X_IRQ_PREAMBLE_DETECTED|RADIOLIB_SX126X_IRQ_HEADER_VALID;
+  const bool complete=radioIRQ.load() || (irq&RADIOLIB_SX126X_IRQ_RX_DONE);
+  const auto decision=radioDwell.consider(millis(),irq&activity,complete,maximumPacketMs);
+  if(decision==lora_scan::Dwell::Decision::Wait) {
+    if(complete) radioIRQ=true; // Preserve FIFO; serviceLoRa drains next tick.
+    if(!hopDeferred) {++radioStatus.hop_deferrals;hopDeferred=true;}
+    return;
+  }
+  if(decision==lora_scan::Dwell::Decision::TimeoutSwitch) ++radioStatus.hop_timeouts;
+  stopRadioListen();
+  if(radio.standby()!=RADIOLIB_ERR_NONE) {
+    ++counters.radio_errors;radioOK=false;hw::setLoRaFrontend(false);return;
+  }
+  // Standby does not clear IRQ status or the completed FIFO. Check again so a
+  // completion racing the switch is logged with its original radio snapshot.
+  const uint32_t finalIrq=radio.getIrqFlags();
+  if(finalIrq&RADIOLIB_SX126X_IRQ_RX_DONE) readLoRaPacketLocked(false);
+  else if((finalIrq&activity) && decision!=lora_scan::Dwell::Decision::TimeoutSwitch)
+    ++radioStatus.hop_interruptions; // A newly arriving preamble raced standby.
+  hw::setLoRaFrontend(false);radioIRQ=false;
+  const uint8_t next=radioSlot^1;
+  if(!applyRadioProfile(radioProfiles[next],false)) {
+    ++counters.radio_errors;radioOK=false;return;
+  }
+  radioSlot=next;radioStatus.active=radioProfiles[radioSlot];
+  hw::setLoRaFrontend(true,config.lna);
+  if(!hw::loraFrontendPresent() || armRadioReceive()!=RADIOLIB_ERR_NONE) {
+    ++counters.radio_errors;radioOK=false;hw::setLoRaFrontend(false);return;
+  }
+  ++radioStatus.switches;hopDeferred=false;
+  radioDwell.reset(millis(),config.lora_dwell_ms);
 }
 }
 
@@ -704,6 +798,21 @@ bool scannersRestoreBleAfterUpload() {
 }
 bool scannersConfigureLoRa() {
   if(capturing.load() || quietLatched.load()) return false;
+  stopRadioListen();
+  radioStatus=lora_scan::Status{};hopDeferred=false;
+  const auto* meshCore=lora_scan::meshCoreProfile(config.region,config.meshcore_profile);
+  radioStatus.meshcore_available=meshCore!=nullptr;
+  radioStatus.combined=config.lora_mode==uint8_t(lora_scan::Mode::Both);
+  radioProfiles[0]=lora_scan::Snapshot{};
+  radioProfiles[0].frequency_mhz=config.frequency;
+  radioProfiles[0].bandwidth_khz=config.bandwidth;
+  radioProfiles[0].sf=config.sf;radioProfiles[0].cr=config.cr;
+  radioProfiles[0].sync_word=0x2b;radioProfiles[0].protocol=1;
+  radioProfiles[0].preamble_symbols=config.preamble;radioProfiles[0].lna=config.lna;
+  strlcpy(radioProfiles[0].name,config.profile,sizeof(radioProfiles[0].name));
+  radioProfiles[1]=meshCore?lora_scan::snapshot(*meshCore,config.lna):lora_scan::Snapshot{};
+  radioSlot=config.lora_mode==uint8_t(lora_scan::Mode::MeshCore)?1:0;
+  radioStatus.active=radioProfiles[radioSlot];
   if(!radioInitialized && (!config.lora_enabled || !hw::loraFrontendPresent() || !regionHardwareCompatible())) {
     radioPending=RadioTransition::None; radioOK=false; radioIRQ=false;
     hw::setLoRaFrontend(false);
@@ -716,15 +825,16 @@ bool scannersConfigureLoRa() {
   if(radioInitialized) radio.standby();
   hw::setLoRaFrontend(false); radioOK=false; radioIRQ=false;
   if(!config.lora_enabled) return true;
+  if(config.lora_mode>2 || !lora_scan::validDwell(config.lora_dwell_ms) ||
+     (config.lora_mode!=0 && !meshCore)) {
+    ++counters.radio_errors; return false;
+  }
   if(!hw::loraFrontendPresent() || !regionHardwareCompatible()) {
     ++counters.radio_errors; return false;
   }
   radioInitAttempted=true;
-  const int state=radio.begin(config.frequency,config.bandwidth,config.sf,config.cr,0x2b,0,config.preamble,board::LORA_TCXO_VOLTS,board::LORA_USE_LDO);
-  if(state!=RADIOLIB_ERR_NONE) { ++counters.radio_errors; return false; }
+  if(!applyRadioProfile(radioProfiles[radioSlot],true)) { ++counters.radio_errors; return false; }
   radioInitialized=true;
-  const int switchState=radio.setDio2AsRfSwitch(true);
-  if(switchState!=RADIOLIB_ERR_NONE) { ++counters.radio_errors; return false; }
   radio.setDio1Action(onRadio);
   radioOK=true;
   return true;
@@ -732,6 +842,10 @@ bool scannersConfigureLoRa() {
 void scannersStart() {
   if(quietLatched.load(std::memory_order_relaxed) || !bleScanner || !scannersCaptureReady()) return;
   const bool wardriver=captureMode.load(std::memory_order_relaxed)==CaptureMode::Wardriver;
+  radioStatus.listen_ms[0]=radioStatus.listen_ms[1]=0;
+  radioStatus.received[0]=radioStatus.received[1]=0;
+  radioStatus.switches=radioStatus.hop_deferrals=radioStatus.hop_timeouts=radioStatus.hop_interruptions=0;
+  hopDeferred=false;
   if(wardriver) startWifi(); else startReconWifi();
   radioIRQ=false;
   hw::setLoRaFrontend(false);
@@ -741,6 +855,7 @@ void scannersStart() {
 }
 void scannersStop() {
   if(quietFinished) return;
+  stopRadioListen();
   radioIRQ=false;
   hw::setLoRaFrontend(false);
   radioPending=radioInitialized ? RadioTransition::Standby : RadioTransition::None;
@@ -797,9 +912,12 @@ bool scannersEnterQuiet() {
   return quietShutdownOK;
 }
 void scannersTick() {
+  accountRadioListen();
   serviceRadioTransition();
   if(quietLatched.load(std::memory_order_relaxed) || !capturing.load()) return;
-  if(captureMode.load(std::memory_order_relaxed)==CaptureMode::Wardriver) serviceLoRa();
+  if(captureMode.load(std::memory_order_relaxed)==CaptureMode::Wardriver) {
+    serviceLoRa();serviceRadioHop();
+  }
   if(phase==Phase::Wifi && wifiDone.exchange(false)) {
     collectWifi(); phase=Phase::WifiResults;
   } else if(phase==Phase::WifiResults) {
@@ -831,4 +949,9 @@ const char* scanPhase() {
   switch(phase) { case Phase::Wifi:return "Wi-Fi passive"; case Phase::WifiResults:return "Wi-Fi results"; case Phase::ReconWifi:return "Recon Wi-Fi frames"; case Phase::Ble:return "BLE passive"; case Phase::Guard:return "Radio guard"; default:return "Ready"; }
 }
 bool loraReady() { return radioOK && hw::loraFrontendPresent(); }
+lora_scan::Status loraScanStatus() {
+  accountRadioListen();
+  radioStatus.remaining_ms=radioStatus.combined && radioListening?radioDwell.remaining(millis()):0;
+  return radioStatus;
+}
 }

@@ -1,6 +1,7 @@
 #pragma once
 #include <stdint.h>
 #include "gnss_protocol.h"
+#include "lora_scan.h"
 namespace tunnel {
 using GnssSkyView=gnss_protocol::SkyView;
 // Coordinate-free diagnostics. Read on the main loop that calls gnssTick().
@@ -50,6 +51,9 @@ bool scannersEnterQuiet();
 void scannersTick();
 const char* scanPhase();
 bool loraReady();
+// Main-loop snapshot; counts only time actually armed for reception, including
+// the current interval. Protocol order in arrays: Meshtastic, MeshCore.
+lora_scan::Status loraScanStatus();
 // Idle only. Retune/reinitialize LoRa after a saved region without rebooting.
 bool scannersConfigureLoRa();
 void gnssEnd();

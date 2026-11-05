@@ -117,6 +117,8 @@ def read_source(source_zip, version):
         config = json.loads(archive.read(prefix + "sdcard/lora-tunnel/config.example.json"))
         if not isinstance(config.get("credentials"), dict) or any(v != "" for v in config["credentials"].values()):
             raise ValueError("Source sample credentials must be empty")
+        if config.get("lora", {}).get("meshtastic_keys", []) != []:
+            raise ValueError("Source sample mesh keys must be empty")
         rules = json.loads(archive.read(prefix + "sdcard/lora-tunnel/detection_rules.json"))
         if rules.get("schema") != 1 or rules.get("rules") != []:
             raise ValueError("Shipped detection rules must be the empty example")

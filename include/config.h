@@ -2,6 +2,7 @@
 #include <Arduino.h>
 #include "recon_rules.h"
 #include "lora_profiles.h"
+#include "mesh_decode.h"
 
 namespace tunnel {
 struct Config {
@@ -15,6 +16,12 @@ struct Config {
   uint8_t sf = 11, cr = 5;
   uint16_t preamble = 16;
   uint32_t wifi_dwell_ms = 120, ble_window_ms = 2500;
+  uint8_t lora_mode = 0; // Meshtastic, MeshCore, combined (slow profile rotation).
+  uint32_t lora_dwell_ms = 30000;
+  char meshcore_profile[32] = "AUTO";
+  bool decode_public = true;
+  mesh::Key mesh_keys[mesh::MaxKeys]{};
+  uint8_t mesh_key_count = 0;
   char profile[40] = "Choose region", region[12] = "UNSET";
   char wifi_name[128]{}, wifi_password[128]{};
   char wigle_name[128]{}, wigle_token[128]{}, wdgwars_token[128]{}, wardrift_token[128]{};
@@ -39,6 +46,7 @@ RegionSaveResult saveLoRaRegion(const char* code, bool sdMounted);
 bool saveCredential(int field, const char* value);
 // Service order: WiGLE, Wardrift, WDGWars. Caller owns SPI, capture/upload idle.
 bool saveAutoUpload(int service, bool enabled);
+bool saveLoRaMode(uint8_t mode);
 const Rule* matchRule(bool ble, const char* address, uint8_t addressType, const char* name);
 RuleApplication applyReconRules(recon::Result& result, bool ble, const char* address,
                                uint8_t addressType, const char* name,

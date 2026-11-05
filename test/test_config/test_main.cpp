@@ -13,6 +13,7 @@ void test_known_profile_and_supported_boundaries() {
     TEST_ASSERT_TRUE(tunnel::validLoRaSettings(928, 500, 12, 8, 64));
     TEST_ASSERT_TRUE(tunnel::validLoRaSettings(869.525, 250, 11, 5, 16));
     TEST_ASSERT_TRUE(tunnel::validLoRaSettings(863, 125, 7, 5, 8));
+    TEST_ASSERT_TRUE(tunnel::validLoRaSettings(910.525, 62.5, 7, 5, 32));
 }
 
 void test_large_json_integers_cannot_wrap_into_valid_profile() {
@@ -29,7 +30,7 @@ void test_negative_and_unsupported_settings_rejected() {
     TEST_ASSERT_FALSE(tunnel::validLoRaSettings(906.875, 250, 11, 5, -65520));
     TEST_ASSERT_FALSE(tunnel::validLoRaSettings(862.999, 250, 11, 5, 16));
     TEST_ASSERT_FALSE(tunnel::validLoRaSettings(433.875, 250, 11, 5, 16));
-    TEST_ASSERT_FALSE(tunnel::validLoRaSettings(906.875, 62.5, 11, 5, 16));
+    TEST_ASSERT_FALSE(tunnel::validLoRaSettings(906.875, 31.25, 11, 5, 16));
     TEST_ASSERT_FALSE(tunnel::validLoRaSettings(906.875, 250, 6, 5, 16));
     TEST_ASSERT_FALSE(tunnel::validLoRaSettings(906.875, 250, 11, 4, 16));
 }

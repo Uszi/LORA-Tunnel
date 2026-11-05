@@ -24,6 +24,8 @@ void test_legacy_enabled_config_preserves_us_profile_defaults() {
   TEST_ASSERT_TRUE(settings.preamble == 16);
   TEST_ASSERT_EQUAL_STRING("US",settings.region);
   TEST_ASSERT_TRUE(settings.selection_complete);
+  TEST_ASSERT_TRUE(parse(R"({"schema":1,"lora":{"enabled":true,"region":"US","frequency_mhz":910.525,"bandwidth_khz":62.5,"spreading_factor":7,"preamble_symbols":32}})",settings));
+  TEST_ASSERT_TRUE(settings.bandwidth == 62.5);
 }
 
 void test_disabled_but_valid_config_is_usable() {
@@ -155,7 +157,7 @@ void test_invalid_typed_and_out_of_range_radio_fields_are_rejected() {
     R"({"schema":1,"lora":{"enabled":true,"frequency_mhz":"906.875"}})",
     R"({"schema":1,"lora":{"enabled":true,"frequency_mhz":null}})",
     R"({"schema":1,"lora":{"enabled":true,"frequency_mhz":869.525}})",
-    R"({"schema":1,"lora":{"enabled":true,"bandwidth_khz":62.5}})",
+    R"({"schema":1,"lora":{"enabled":true,"bandwidth_khz":31.25}})",
     R"({"schema":1,"lora":{"enabled":true,"spreading_factor":11.5}})",
     R"({"schema":1,"lora":{"enabled":true,"spreading_factor":267}})",
     R"({"schema":1,"lora":{"enabled":false,"coding_rate_denominator":261}})",

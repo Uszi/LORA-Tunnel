@@ -5,6 +5,8 @@
 #include <cstring>
 #include "config_validation.h"
 #include "lora_profiles.h"
+#include "lora_scan.h"
+#include "mesh_config.h"
 
 namespace tunnel {
 
@@ -15,6 +17,9 @@ struct RadioSettings {
   double frequency = 0, bandwidth = 250;
   std::int64_t sf = 11, cr = 5, preamble = 16;
   char region[12] = "UNSET";
+  uint8_t mode=0;
+  uint32_t dwell_ms=30000;
+  char meshcore_profile[32]="AUTO";
 };
 
 // A parseable schema marker alone is insufficient for primary/backup rotation.
@@ -41,13 +46,34 @@ inline bool parseConfigRadio(JsonVariantConst root, RadioSettings& result) {
     return radio[key].as<std::int64_t>();
   };
   RadioSettings parsed;
+  if(radio.containsKey("mode")) {
+    if(!radio["mode"].is<const char*>())return false;
+    const char* mode=radio["mode"];
+    if(strlen(mode)!=radio["mode"].as<JsonString>().size())return false;
+    if(!strcmp(mode,"meshcore"))parsed.mode=1;
+    else if(!strcmp(mode,"combined"))parsed.mode=2;
+    else if(strcmp(mode,"meshtastic"))return false;
+  }
+  if(radio.containsKey("dwell_ms")) {
+    if(!radio["dwell_ms"].is<uint32_t>())return false;
+    parsed.dwell_ms=radio["dwell_ms"];
+    if(parsed.dwell_ms<30000 || parsed.dwell_ms>600000)return false;
+  }
+  if(radio.containsKey("meshcore_profile")) {
+    if(!radio["meshcore_profile"].is<const char*>())return false;
+    const JsonString name=radio["meshcore_profile"].as<JsonString>();
+    if(!name.size() || name.size()>=sizeof(parsed.meshcore_profile) || strlen(name.c_str())!=name.size())return false;
+    strcpy(parsed.meshcore_profile,name.c_str());
+  }
+  uint8_t keyCount=0; bool publicDefault=true;
+  if(!parseMeshKeys(radio,nullptr,keyCount,publicDefault))return false;
   parsed.enabled = radio["enabled"].as<bool>();
   const bool legacy=!radio.containsKey("region");
   const lora_profiles::Profile* profile=nullptr;
   if(!legacy) {
     if(!radio["region"].is<const char*>()) return false;
     const char* code=radio["region"];
-    if(std::strlen(code)>=sizeof(parsed.region)) return false;
+    if(std::strlen(code)>=sizeof(parsed.region) || strlen(code)!=radio["region"].as<JsonString>().size()) return false;
     profile=lora_profiles::find(code);
     if(!profile && !lora_profiles::isUnset(code)) return false;
     std::strcpy(parsed.region,code);
@@ -85,12 +111,14 @@ inline bool parseConfigRadio(JsonVariantConst root, RadioSettings& result) {
   // UNSET needs an explicit marker to distinguish Skip from a blank example.
   parsed.selection_complete=profile ? lora_profiles::selectable(*profile) :
       (radio["selection_complete"] | false);
+  if(parsed.enabled && parsed.mode && !lora_scan::findMeshCoreProfile(parsed.region,parsed.meshcore_profile))return false;
 #if defined(LORA_TUNNEL_CARDPUTER_ADV)
   // A valid Heltec SD config is not corrupt merely because this cap cannot
   // receive its frequency. Preserve its credentials/other settings and report
   // the incompatibility rather than selecting a different backup/NVS region.
   parsed.hardware_compatible=!profile || lora_profiles::fitsHardware(
       parsed.frequency,parsed.bandwidth,lora_profiles::hardwareMinimum,lora_profiles::hardwareMaximum);
+  if(parsed.mode && profile && !lora_scan::meshCoreProfile(parsed.region,parsed.meshcore_profile))parsed.hardware_compatible=false;
   if(!parsed.hardware_compatible) { parsed.enabled=false; parsed.selection_complete=false; }
 #endif
   result = parsed;
@@ -120,6 +148,9 @@ inline bool setConfigDocumentRegion(JsonVariant root,const char* code) {
   radio["coding_rate_denominator"]=profile ? profile->cr : 5;
   radio["preamble_symbols"]=profile ? profile->preamble : 16;
   radio["lna"]=false;
+  // A region change must not leave a previous region's MeshCore frequency active.
+  radio["meshcore_profile"]="AUTO";
+  if(!lora_scan::meshCoreProfile(code,"AUTO"))radio["mode"]="meshtastic";
   return true;
 }
 

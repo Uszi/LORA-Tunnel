@@ -6,6 +6,7 @@ No live service or device is contacted.
 """
 from pathlib import Path
 import os
+import re
 import subprocess
 import tempfile
 from check_cardputer_ui import ROOT, compiler
@@ -38,15 +39,21 @@ def request_session_body():
     service = extract_body(source, "void serviceAlerts() {")
     mode = extract_body(source, "void selectMode(bool recon) {")
     actions = []
-    for name, following in [("ToggleAlerts", "SaveRegion"), ("Shutdown", "RetryStorage")]:
+    for name in ["ToggleAlerts", "Shutdown"]:
         first = "    case ui::Action::" + name + ":"
-        last = "    case ui::Action::" + following + ":"
-        if source.count(first) != 1 or source.count(last) != 1:
+        if source.count(first) != 1:
             raise RuntimeError("Alert action extraction boundary changed: " + name)
-        begin, end = source.index(first), source.index(last)
-        if end <= begin:
-            raise RuntimeError("Alert action order changed: " + name)
-        actions.append(source[begin:end])
+        begin = source.index(first)
+        # Only this case belongs to the fixture. Locate its immediate sibling,
+        # so inserting another production action cannot silently import it.
+        sibling = re.search(r"(?m)^    case ui::Action::[A-Za-z_]+:", source[begin + len(first):])
+        if sibling is None:
+            raise RuntimeError("Missing next action boundary: " + name)
+        end = begin + len(first) + sibling.start()
+        case = source[begin:end]
+        if not case.rstrip().endswith("break;"):
+            raise RuntimeError("Alert case must remain complete and non-fallthrough: " + name)
+        actions.append(case)
     dispatch = ("void performAlertAction(ui::Action wanted,int field=0) {\n"
                 "  struct {int field;} action{field};\n  switch(wanted) {\n" +
                 "".join(actions) + "  default: break;\n  }\n}\n")

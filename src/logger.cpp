@@ -165,7 +165,7 @@ void serialize(const Observation& event) {
   gps["sats"]=event.gps.satellites;
   const size_t capturedLength=std::min(size_t(event.length),size_t(RAW_MAX));
   const size_t originalLength=std::max(size_t(event.original_length),size_t(event.length));
-  if(event.kind!=Kind::Start && event.kind!=Kind::Stop) serializeRecon(event.detection);
+  if(event.kind==Kind::Wifi || event.kind==Kind::Ble) serializeRecon(event.detection);
   if (event.kind==Kind::Start || event.kind==Kind::Stop) {
     record["type"]=event.kind==Kind::Start?"session_start":"session_end";
     record["firmware"]=TUNNEL_VERSION;
@@ -176,6 +176,14 @@ void serialize(const Observation& event) {
     record["counts"]["radio_errors"]=counters.radio_errors.load();
     record["counts"]["ui_skips"]=counters.ui_skips.load();
     record["counts"]["flush_max_ms"]=counters.flush_max_ms.load();
+    if(event.kind==Kind::Stop) {
+      const auto& coverage=event.radio_coverage;
+      auto scan=record.createNestedObject("lora_coverage");
+      scan["meshtastic_listen_ms"]=coverage.listen_ms[0];scan["meshcore_listen_ms"]=coverage.listen_ms[1];
+      scan["meshtastic_received"]=coverage.received[0];scan["meshcore_received"]=coverage.received[1];
+      scan["switches"]=coverage.switches;scan["hop_deferrals"]=coverage.hop_deferrals;
+      scan["hop_timeouts"]=coverage.hop_timeouts;scan["hop_interruptions"]=coverage.hop_interruptions;
+    }
   } else if (event.kind==Kind::Wifi) {
     record["type"]="wifi";
     auto wifi=record.createNestedObject("wifi");
@@ -217,19 +225,25 @@ void serialize(const Observation& event) {
   } else {
     record["type"]="lora";
     auto lora=record.createNestedObject("lora");
-    lora["frequency_mhz"]=config.frequency; lora["bandwidth_khz"]=config.bandwidth;
-    lora["spreading_factor"]=config.sf; lora["coding_rate_denominator"]=config.cr;
-    lora["sync_word"]=43; lora["preamble_symbols"]=config.preamble;
-    lora["profile"]=config.profile; lora["lna"]=config.lna;
+    const auto& radio=event.radio;
+    lora["frequency_mhz"]=radio.frequency_mhz; lora["bandwidth_khz"]=radio.bandwidth_khz;
+    lora["spreading_factor"]=radio.sf; lora["coding_rate_denominator"]=radio.cr;
+    lora["sync_word"]=radio.sync_word; lora["preamble_symbols"]=radio.preamble_symbols;
+    lora["profile"]=radio.name; lora["lna"]=radio.lna;
     const size_t loraLength=std::min(capturedLength,size_t(255));
     lora["rssi"]=event.rssi; lora["snr"]=event.snr; lora["length"]=loraLength;
     lora["original_len"]=originalLength;
     lora["truncated"]=event.truncated || originalLength>loraLength;
-    lora["radio_read_status"]="ok"; lora["crc_status"]="not_reported"; lora["payload_status"]="not_decoded";
+    lora["radio_read_status"]="ok"; lora["crc_status"]="not_reported";
+    const auto& decoded=event.mesh_data;
+    lora["payload_status"]=mesh::statusName(decoded.status);
+    lora["protocol"]=mesh::protocolName(decoded.protocol);
+    lora["decoder_version"]=1;
+    lora["classification"]=decoded.status==mesh::Status::Decoded?mesh::protocolName(decoded.protocol):
+        radio.protocol==1?"meshtastic_candidate":radio.protocol==2?"meshcore_candidate":"unknown";
     char bytes[511]; hex(event.raw,loraLength,bytes); lora["raw_hex"]=bytes;
     lt::MeshHeader candidate;
-    if (lt::parseMeshHeader(event.raw,loraLength,candidate)) {
-      lora["classification"]="meshtastic_header_candidate";
+    if (radio.protocol==1 && lt::parseMeshHeader(event.raw,loraLength,candidate)) {
       auto header=lora.createNestedObject("candidate_header");
       char id[9];
       snprintf(id,sizeof(id),"%08lx",(unsigned long)candidate.from); header["from"]=id;
@@ -240,7 +254,37 @@ void serialize(const Observation& event) {
       header["want_ack"]=candidate.want_ack; header["next_hop_raw"]=candidate.next_hop;
       header["relay_node_raw"]=candidate.relay_node;
       header["relay_fields_available"]=candidate.hop_start>0;
-    } else lora["classification"]="unknown";
+    }
+    auto payload=lora.createNestedObject("decoded");
+    payload["authentication"]=mesh::authenticationName(decoded.authentication);
+    payload["signature_present"]=decoded.signature_present;
+    payload["text_sanitized_or_truncated"]=decoded.sanitized;
+    if(decoded.protocol==mesh::Protocol::Meshtastic)payload["port"]=decoded.port;
+    if(decoded.protocol==mesh::Protocol::MeshCore) {
+      payload["packet_type"]=decoded.packet_type;
+      payload["path_count"]=decoded.path_count;payload["path_hash_bytes"]=decoded.path_hash_size;
+      if(decoded.has_node) {char publicKey[65];hex(decoded.public_key,32,publicKey);payload["public_key_hex"]=publicKey;}
+    }
+    if(decoded.has_node) {
+      if(decoded.name[0])payload["name"]=decoded.name;
+      if(decoded.short_name[0])payload["short_name"]=decoded.short_name;
+      if(decoded.has_hardware)payload["hardware_model"]=decoded.hardware;
+      if(decoded.has_role)payload["role"]=decoded.role;
+    }
+    if(decoded.has_time)payload["advertised_timestamp"]=decoded.timestamp;
+    if(decoded.has_position) {
+      auto position=payload.createNestedObject("advertised_position");
+      position["source"]="self_reported_broadcast";
+      position["lat"]=decoded.latitude_i*1e-7;position["lon"]=decoded.longitude_i*1e-7;
+      if(decoded.has_altitude)position["alt_m"]=decoded.altitude;
+      if(decoded.precision_bits)position["precision_bits"]=decoded.precision_bits;
+    }
+    if(decoded.has_battery) {
+      payload["battery_level"]=decoded.battery;
+      payload["external_power"]=decoded.battery==101;
+    }
+    if(decoded.has_voltage)payload["voltage"]=decoded.voltage;
+    if(decoded.has_text)payload["text"]=decoded.text;
   }
   const size_t length=measureJson(record);
   if (record.overflowed() || length+1>sizeof(buffer)) { ++counters.log_drops; return; }

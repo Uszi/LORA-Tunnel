@@ -121,7 +121,7 @@ void back(const ui::Model& m) {
 }
 unsigned menuCount() {
   if(page==Page::Home)return 3;
-  if(page==Page::Settings)return 6;
+  if(page==Page::Settings)return 7;
   if(page==Page::Credentials)return sizeof(fields)/sizeof(fields[0]);
   if(page==Page::Uploads)return 7;
   if(page==Page::Power)return 2;
@@ -136,7 +136,8 @@ void select(const ui::Model& m) {
     else if(focus==2)show(Page::Uploads);
     else if(focus==3)emit(ui::Action::ToggleAlerts,m.recon_alerts?0:1);
     else if(focus==4)emit(ui::Action::RetryStorage);
-    else show(Page::Power);
+    else if(focus==5)show(Page::Power);
+    else emit(ui::Action::SaveLoRaMode,(m.lora_mode+1)%3);
   } else if(page==Page::Credentials) {
     editField=focus; eraseInput(); editError[0]=0; show(Page::Edit);
   } else if(page==Page::Edit) {
@@ -215,6 +216,7 @@ void render(const ui::Model& m) {
     if(tab==2 && !m.drops && !m.errors)snprintf(text,sizeof(text),"RX %s",m.profile[0]?m.profile:"Choose LoRa region");
     else snprintf(text,sizeof(text),"Drop:%lu Err:%lu  %s",(unsigned long)m.drops,(unsigned long)m.errors,m.gps?"GNSS FIX":"NO FIX");
     label(text,4,97,(m.drops||m.errors)?AMBER:MUTED,38);
+    if(tab==2)label(m.lora_detail,4,108,CYAN,38);
     footer("Space Start/Stop  Left/Right  S Setup",m);
   } else if(page==Page::Recon) {
     header("RECON"); status(m);
@@ -235,8 +237,9 @@ void render(const ui::Model& m) {
   } else if(page==Page::Settings) {
     header("SETTINGS"); status(m);
     char alert[40];snprintf(alert,sizeof(alert),"Alert sound: %s",m.recon_alerts?"ON":"OFF");
-    const char* names[]={"LoRa region","Connection keys", "Automatic uploads",alert,"Retry SD card","Power / save + sleep"};
-    drawMenu(names,6); footer("Up/Down choose  Enter open  Esc back",m);
+    const char* mode=m.lora_mode==2?"LoRa: BOTH / slow scan":m.lora_mode==1?"LoRa: MESHCORE":"LoRa: MESHTASTIC";
+    const char* names[]={"LoRa region","Connection keys", "Automatic uploads",alert,"Retry SD card","Power / save + sleep",mode};
+    drawMenu(names,7); footer("Up/Down choose  Enter open  Esc back",m);
   } else if(page==Page::Credentials) {
     header("KEYS"); label("Enter a replacement; saved on SD.",4,26,MUTED,38);
     drawMenu(fields,sizeof(fields)/sizeof(fields[0])); footer("Up/Down choose  Enter edit  Esc back",m);

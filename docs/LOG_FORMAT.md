@@ -144,16 +144,17 @@ for later interpretation.
 
 ## LoRa reception and candidate classification
 
-`lora` contains the fixed receive profile: MHz frequency, kHz bandwidth,
+`lora` contains the receive-time profile snapshot: MHz frequency, kHz bandwidth,
 spreading factor, coding-rate denominator, sync word, preamble symbols, profile
 name and LNA setting. It also stores RSSI, SNR, packet length and raw received
 bytes in `raw_hex`, bounded to **255 bytes**. `original_len` and `truncated` retain
 any difference between supplied and retained lengths. LoRa RSSI is stored as an
 integer, so fractional driver RSSI
-resolution is not preserved; SNR remains floating point. The current band is
-902–928 MHz. The receiver can listen to only one modem/frequency profile at a
-time. Radio settings come from the session's fixed configuration; changes while
-capturing/hopping are not implemented.
+resolution is not preserved; SNR remains floating point. The selected profile
+must fit the board's supported band. The receiver can listen to only one
+modem/frequency profile at a time. Current development source can rotate between
+Meshtastic and MeshCore profiles; settings in queued records remain the original
+receive settings even if the radio has switched before the SD write.
 
 `radio_read_status:ok` records successful driver delivery.
 `crc_status:not_reported` is deliberate. A successful RadioLib read is not an
@@ -161,7 +162,10 @@ independently retained CRC-observation flag. `payload_status:not_decoded` means
 no payload parsing/decryption was performed; it does not claim all traffic is
 encrypted. Unknown payload bytes remain useful and are preserved.
 
-`classification` is `unknown` or `meshtastic_header_candidate` in this build.
+Published 0.3/0.4 logs use `unknown` or `meshtastic_header_candidate`.
+Development source also emits protocol candidates or successfully parsed
+`meshtastic`/`meshcore` classifications, with separate payload/authentication
+status. See [the combined mesh field contract](COMBINED_MESH.md#logs-and-trust).
 A candidate adds `candidate_header` with eight-digit from/to/packet IDs,
 channel hash, hop-limit/start, MQTT/ACK flags and raw next-hop/relay bytes.
 These are a plausible interpretation of a packet's bytes, **not verified source
@@ -171,12 +175,15 @@ human-readable node name, message or WDGWars mesh record. `relay_fields_availabl
 indicates the parser has a nonzero hop-start value; do not turn an unavailable
 field into a zero-hop/direct claim.
 
-Future decoded mesh extensions may use a top-level `mesh` object. The schema
-allows that extension but does not infer it from `candidate_header` or validate
-it as an authenticated sender. The experimental offline exporter has separate
-strict eligibility rules in `docs/EXPORTS.md`. Any advertised node position
-belongs in that extension with its source explicitly labelled; it must never
-overwrite the receiver's `gps` object.
+The development decoder uses `lora.decoded`, with `decoder_version:1` on the
+LoRa record. Advertised position is `lora.decoded.advertised_position`, always
+separate from receiver `gps`. Session-end `lora_coverage` records per-protocol
+listening milliseconds and packet totals, profile switches, hop deferrals,
+timeouts and observed interruptions. Counters describe this session's armed
+receive intervals; they do not estimate transmissions missed while tuned away.
+The older optional top-level `mesh` extension remains reserved for the
+experimental exporter contract. Decoded fields do not automatically make a
+record eligible for that exporter or an upload service.
 
 ## Summaries, bounds and interrupted logs
 

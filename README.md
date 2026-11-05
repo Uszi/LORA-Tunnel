@@ -2,6 +2,8 @@
 
 **BETA · Cardputer ADV 0.4.0-beta.1 · Heltec published 0.3.0-beta.1**
 
+**Development branch: 0.5.0-dev combined mesh reception.** Current source adds a Meshtastic / MeshCore / Both selector, slow profile switching, local Meshtastic node/position/text/device-telemetry decoding and MeshCore public-advert decoding with signature verification. Raw packets and receive settings remain in each SD record. This development work does not update the published binaries or web installer. Known encryption/protocol gaps and physical acceptance checks are recorded in the [combined mesh guide](docs/COMBINED_MESH.md).
+
 LORA Tunnel provides a handheld field terminal for the [Heltec WiFi LoRa 32 Expansion Kit V2 / V4-R8](https://heltec.org/project/v4-r8-ex/) and a dedicated [Cardputer ADV + Cap LoRa-1262 (U214) build](docs/CARDPUTER_ADV.md). Its primary **Wardriver** mode records nearby radio observations to microSD. A separate passive **Recon** mode presents matched indicators, their evidence and optional buzzer alerts. Capture runs on the device without a laptop, phone or Kismet server.
 
 **Cardputer ADV 0.4.0-beta.1 is a public beta with scoped hardware validation.** It has a compact 240 × 135 keyboard interface, U214 LoRa/GNSS support, an 8 MB/no-PSRAM profile and separately packaged factory/Launcher binaries. [Cardputer setup and controls](docs/CARDPUTER_ADV.md) · [Acceptance and release checklist](docs/CARDPUTER_RELEASE.md).
@@ -26,11 +28,11 @@ LORA Tunnel provides a handheld field terminal for the [Heltec WiFi LoRa 32 Expa
 | --- | --- | --- |
 | Wi-Fi | Passive 2.4 GHz AP observations: BSSID, available SSID, channel, RSSI and security metadata | US channels 1–11; no 5/6 GHz radio; Wi-Fi and BLE share scheduled radio time |
 | BLE | Passive advertisements with address type, RSSI and available names/service/manufacturer data | Random addresses are not permanent identities; scanning is time-sliced with Wi-Fi |
-| LoRa | First-run region choice, hardware-compatible LongFast profiles, receive-only raw bytes and candidate Meshtastic header fields | One frequency/modem configuration at a time; no complete node/message/position decoder or hopping |
+| LoRa | Region choice; current development source adds combined Meshtastic/MeshCore reception, protocol-specific decoding, profile snapshots and slow hopping | One receive profile at a time; published releases retain header-only capture; see the [supported decoding scope](docs/COMBINED_MESH.md) |
 | Recon | Separate passive Wi-Fi/BLE mode, evidence grades, category filters, optional SD rules and [original once-per-session detection sounds](docs/ALERTS.md) in current source | Matches are indicators, not authenticated identity or proof of recording; LoRa is stopped in Recon |
 | GNSS | Validity/age handling, UTC when available, checksum/fix/satellite/antenna-status diagnostics | Fresh fix verified on 0.3.0-beta.1; repeated acquisition, loss/reacquisition and geotagged SD/export checks remain pending |
 | Storage | Versioned JSONL sessions, bounded queues, buffered writes and visible drop/error counters | Independent SD readback, interruption recovery and sustained-drive acceptance still need completion |
-| Exports | Host tools produce eligible WiGLE CSV rows and an unsigned WDGWars mesh candidate payload | WiGLE requires valid fresh receiver coordinates and UTC; current header-only LoRa logs lack the decoded node data needed for mesh export |
+| Exports | Host tools produce eligible WiGLE CSV rows and an unsigned WDGWars mesh candidate payload | WiGLE requires fresh receiver coordinates/UTC; the new decoded mesh log fields still need exporter/service acceptance work |
 | Credentials | SD configuration; Heltec touchscreen or Cardputer physical keyboard | Values remain plaintext on the SD card; public packages contain empty examples |
 
 Short device checks have demonstrated display/touch initialization, SD mount, Wi-Fi/BLE observations, LoRa packet reception and session transitions. The user confirmed the separate Wardriver/Recon appearance, earlier flicker fix and subsequently working GPS; a later read-only device check confirmed a fresh fix. Those results do not establish every detection category, new physical-button/shutdown behavior, battery-only operation, upload support or drive-duration reliability. Exact build/test/device evidence and remaining checks are in [VALIDATION.md](docs/VALIDATION.md) and [TEST_CHECKLIST.md](docs/TEST_CHECKLIST.md).

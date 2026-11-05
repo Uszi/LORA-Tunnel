@@ -35,6 +35,8 @@ def collect_paths(root=ROOT):
     credentials = sample.get("credentials")
     if not isinstance(credentials, dict) or any(value != "" for value in credentials.values()):
         raise ValueError("Source example credentials must all be empty; keep real values on the private SD card")
+    if sample.get("lora", {}).get("meshtastic_keys", []) != []:
+        raise ValueError("Source example mesh keys must be empty; keep channel keys on the private SD card")
     rules = json.loads((root / "sdcard/lora-tunnel/detection_rules.json").read_text(encoding="utf-8"))
     if rules.get("schema") != 1 or rules.get("rules") != []:
         raise ValueError("The packaged detection_rules.json must retain its empty rules array")
