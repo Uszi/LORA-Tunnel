@@ -6,6 +6,8 @@ LORA Tunnel turns a supported handheld into a standalone Wi-Fi, Bluetooth Low En
 
 The firmware runs on **Heltec WiFi LoRa 32 Expansion Kit V2 / V4-R8** and **M5Stack Cardputer ADV with Cap LoRa-1262 (U214)**. Each board has its own binary. Capture runs on the handheld without a laptop, phone or Kismet server.
 
+> **Fork:** Cardputer ADV dual boot over OTA next to another firmware, with a Power menu entry that returns to it. See [Dual boot](docs/CARDPUTER_ADV.md#dual-boot-with-another-firmware-fork).
+
 [Install with the web flasher](https://valleytech-lora-tunnel.pages.dev/) · [Download 0.5.0](https://github.com/valleytechsolutions/LORA-Tunnel/releases/tag/v0.5.0) · [Project website](https://valleytechsolutions.tech/pages/lora-tunnel) · [Gitea distribution](https://git.churchofmalware.org/Valleytech/LORA-Tunnel)
 
 ## What changed in 0.5.0

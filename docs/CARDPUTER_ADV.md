@@ -102,6 +102,30 @@ bootloader or hardcode a Launcher application offset. Preserve Launcher's NVS
 and its other installed applications. The actual tested Launcher version will
 be recorded with physical acceptance; host checks alone do not certify it.
 
+## Dual boot with another firmware (fork)
+
+This fork can share the Cardputer with another ESP-IDF/Arduino firmware that
+keeps the standard two-slot OTA layout and can receive an application image
+over the network. No bootloader, partition table or NVS is written.
+
+1. Send `.pio/build/cardputer-adv-lora1262/firmware.bin` (the application
+   image, never the factory image) to the other firmware's OTA receiver. It
+   lands in the inactive slot and boots as a pending image.
+2. LORA Tunnel confirms itself after 30 s with working display and keyboard
+   (`LT BOOT confirmed=1 rollback=off` on serial). Until then, any reset
+   returns to the previous firmware. The Arduino core's early confirmation is
+   disabled for this purpose.
+3. **Settings → Power / sleep / firmware → SAVE + START …** stops capture,
+   saves the session, unmounts SD and boots the other slot. The entry shows the
+   other image's project name and version and is hidden when that slot is
+   empty. Sleep pin holds are not applied, so they do not leak into the other
+   firmware.
+
+The other firmware decides how to start LORA Tunnel again; an OTA update of
+that firmware overwrites the slot holding LORA Tunnel. Both firmwares share the
+NVS partition through their own namespaces (`lt-region` and `lt-upload`
+here).
+
 ## Build from source
 
 ```sh

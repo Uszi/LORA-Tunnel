@@ -131,7 +131,16 @@ int main(int argc,char** argv) {
   const size_t powerCount=sent.size();key(input::KeyCode::Select,model);expect(page==Page::Settings && sent.size()==powerCount,"Power Cancel emits no shutdown");
   focus=5;key(input::KeyCode::Select,model);key(input::KeyCode::Right,model);key(input::KeyCode::Select,model);expect(sent.back().action==ui::Action::Shutdown,"Power confirmation requests shutdown");
   model.shutting_down=true;const size_t shuttingCount=sent.size();key(input::KeyCode::Select,model);textKey('w',model);expect(sent.size()==shuttingCount,"shutdown ignores input");capture(output,"saving",model);
-  model.shutting_down=false;show(Page::Uploads);
+  model.shutting_down=false;
+  std::strcpy(model.other_firmware,"cardputer-adv 0.10.1");show(Page::Settings);focus=5;key(input::KeyCode::Select,model);
+  key(input::KeyCode::Right,model);key(input::KeyCode::Right,model);capture(output,"power-switch",model);
+  expect(screenHas("SAVE + START cardputer-adv 0.10.1"),"Power offers the other OTA slot's firmware");
+  key(input::KeyCode::Select,model);expect(sent.back().action==ui::Action::Shutdown && sent.back().field==1,"other firmware choice requests a switch");
+  key(input::KeyCode::Right,model);expect(focus==0,"three Power choices wrap");
+  model.other_firmware[0]=0;show(Page::Settings);focus=5;key(input::KeyCode::Select,model);key(input::KeyCode::Left,model);
+  hw::display().commands.clear();dirty=true;ui::tick(model);
+  expect(focus==1 && screenHas("SAVE + SLEEP") && !screenHas("SAVE + START"),"without another app Power keeps two choices");
+  show(Page::Uploads);
   std::strcpy(model.upload_status,"WDGWars: job queued; receipt pending");
   std::strcpy(model.notice,"Upload preference save failed");
   hw::display().commands.clear();dirty=true;ui::tick(model);
@@ -149,9 +158,9 @@ int main(int argc,char** argv) {
   expect(screenHas("Cancel upload")&&screenHas("3/3"),"Cancel remains reachable on third Uploads page");
   key(input::KeyCode::Select,model);expect(sent.back().action==ui::Action::CancelUpload,"third-page cancel action preserved");
   // Every page/focus and long valid model string must remain within 240 x 135.
-  model.shutting_down=false;memset(model.notice,'N',sizeof(model.notice)-1);memset(model.upload_status,'U',sizeof(model.upload_status)-1);
+  model.shutting_down=false;memset(model.notice,'N',sizeof(model.notice)-1);memset(model.upload_status,'U',sizeof(model.upload_status)-1);memset(model.other_firmware,'F',sizeof(model.other_firmware)-1);
   for(Page next:{Page::Home,Page::Drive,Page::Recon,Page::Detail,Page::Settings,Page::Credentials,Page::Edit,Page::Regions,Page::Power,Page::Uploads}) {
-    show(next);const unsigned count=std::max(1U,menuCount());
+    show(next);const unsigned count=std::max(1U,menuCount(model));
     for(unsigned item=0;item<count;++item){focus=item;dirty=true;ui::tick(model);++assertions;}
   }
   show(Page::Home);ui::keyboard({input::KeyCode::Down,0},model);hostMillis+=45;ui::tick(model);

@@ -9,6 +9,9 @@ struct Model {
   uint32_t wifi = 0, ble = 0, lora = 0, drops = 0, errors = 0, nmea_chars = 0;
   bool buttons_enabled = true, recon_alerts = true;
   bool region_configured = false, region_selection_made = false, shutting_down = false;
+  // Dual boot: the other OTA slot's app ("project version"), empty when none.
+  bool switching_firmware = false;
+  char other_firmware[48]{};
   char region[12]{};
   char shutdown_error[48]{};
   uint32_t recon_total = 0;

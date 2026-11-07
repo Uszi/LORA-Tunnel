@@ -17,6 +17,7 @@
 #include "resource_memory.h"
 #include "uploader.h"
 #include "alert_tones.h"
+#include "dual_boot.h"
 
 using namespace tunnel;
 namespace {
@@ -32,6 +33,8 @@ bool startAfterUpload=false;
 bool initWriter=false,initScanner=false,initMemory=false;
 uint32_t heapAfterHardware=0,heapAfterUi=0,heapAfterConfig=0,heapBeforeScanners=0;
 bool shutdownPending=false,shutdownHadSession=false;
+// Power menu choice: restart into the other OTA slot instead of deep sleep.
+bool shutdownSwitch=false;
 bool configScratchStartup=false;
 uint32_t shutdownAt=0,shutdownErrors=0,shutdownDrops=0;
 esp_timer_handle_t shutdownTimer=nullptr;
@@ -309,6 +312,8 @@ void performActions() {
         shutdownHadSession=capturing.load() || stopping || !loggerIdle();
         shutdownErrors=counters.storage_errors.load(); shutdownDrops=counters.log_drops.load();
         model.shutdown_error[0]=0;
+        shutdownSwitch=action.field==1 && model.other_firmware[0];
+        model.switching_firmware=shutdownSwitch;
         if(capturing.load()) requestSession();
         shutdownPending=true; shutdownAt=millis();
       }
@@ -430,6 +435,7 @@ void serialStatus() {
 }
 void shutdownCancelled(const char* reason) {
   shutdownPending=false; model.shutting_down=false;
+  shutdownSwitch=false; model.switching_firmware=false;
   strlcpy(model.shutdown_error,reason,sizeof(model.shutdown_error));
   if(shutdownTimer) esp_timer_stop(shutdownTimer);
 }
@@ -457,14 +463,22 @@ void serviceShutdown() {
   // Radio shutdown latches capture off until reboot. Failure stays awake.
   ready=false;
   if(xSemaphoreTake(busMutex,pdMS_TO_TICKS(500))!=pdTRUE) { shutdownCancelled("Bus busy; restart device"); return; }
-  if(!hw::prepareSleepHardware()) {
+  // Sleep pin holds would survive a restart, so switching skips them.
+  if(!shutdownSwitch && !hw::prepareSleepHardware()) {
     xSemaphoreGive(busMutex); shutdownCancelled("Release USER; retry Power or restart"); return;
   }
   if(!unmountStorageForSleep()) {
-    hw::cancelSleepPreparation();
+    if(!shutdownSwitch) hw::cancelSleepPreparation();
     xSemaphoreGive(busMutex); shutdownCancelled("Storage busy; restart device"); return;
   }
   gnssEnd();
+  if(shutdownSwitch) {
+    Serial.printf("LT POWER confirmed=1 session_closed=1 switching=1 target=%s\n",model.other_firmware);
+    Serial.flush();
+    dual_boot::startOther();
+    // Boot slot unchanged: come back idle with the session already closed.
+    esp_restart();
+  }
   Serial.println("LT POWER confirmed=1 session_closed=1 sleeping=1 wake=user");
   hw::enterDeepSleep();
 }
@@ -518,6 +532,11 @@ void serialCommands() {
         else if(!strcmp(command,"tunnel start")) { if(!capturing.load()) requestSession(); serialStatus(); }
         else if(!strcmp(command,"tunnel stop")) { if(capturing.load()) requestSession(); serialStatus(); }
         else if(!strcmp(command,"tunnel status")) serialStatus();
+        else if(!strcmp(command,"tunnel switch-firmware")) {
+          // Same path as Power > SAVE + START: save, unmount SD, boot the other slot.
+          if(model.other_firmware[0]) callback(ui::Action::Shutdown,1,"");
+          else Serial.println("LT SWITCH refused=1 reason=no_other_app");
+        }
         else if(!strcmp(command,"tunnel upload-check")) {
           const bool allowed=ready && !capturing.load() && !stopping && !gnssControlPending() && !uploaderBusy() && loggerIdle();
           Serial.printf("LT UPLOAD_CHECK accepted=%d offline=1\n",allowed&&uploaderSelfCheck());
@@ -578,6 +597,8 @@ void setup() {
     gnssBegin();
   }
   heapAfterUi=ESP.getFreeHeap();
+  dual_boot::describeOther(model.other_firmware,sizeof(model.other_firmware));
+  Serial.printf("LT BOOT other=%s\n",model.other_firmware[0]?model.other_firmware:"none");
   const bool memoryOK=ESP.getFlashChipSize()==board::FLASH_BYTES && ESP.getPsramSize()==board::PSRAM_BYTES;
   if(displayOK && mountStorage()) {
     if(!loadConfig() && configLoadState==ConfigLoadState::Invalid)
@@ -610,6 +631,9 @@ void setup() {
   // Diagnostics intentionally never print configuration contents or credentials.
 }
 void loop() {
+  // Without display and keyboard the other firmware cannot be chosen: stay unconfirmed.
+  if(dual_boot::confirmIfStable(millis(),hardwareReady && hw::inputReady()))
+    Serial.println("LT BOOT confirmed=1 rollback=off");
   if(!hardwareReady) { serialCommands(); delay(10); return; }
   if(quietActive) { gnssTick(); serialCommands(); delay(5); return; }
   serviceAlerts();

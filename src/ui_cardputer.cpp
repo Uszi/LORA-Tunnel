@@ -119,12 +119,12 @@ void back(const ui::Model& m) {
   if(page==Page::Detail) { show(Page::Recon); return; }
   show(Page::Home);
 }
-unsigned menuCount() {
+unsigned menuCount(const ui::Model& m) {
   if(page==Page::Home)return 3;
   if(page==Page::Settings)return 7;
   if(page==Page::Credentials)return sizeof(fields)/sizeof(fields[0]);
   if(page==Page::Uploads)return 7;
-  if(page==Page::Power)return 2;
+  if(page==Page::Power)return m.other_firmware[0]?3:2;
   return 0;
 }
 void select(const ui::Model& m) {
@@ -152,7 +152,7 @@ void select(const ui::Model& m) {
       emit(ui::Action::SaveRegion,0,profile.code); show(regionOnboarding?Page::Home:Page::Settings);
     }
   } else if(page==Page::Power) {
-    if(focus==0)show(Page::Settings); else emit(ui::Action::Shutdown);
+    if(focus==0)show(Page::Settings); else emit(ui::Action::Shutdown,focus==2?1:0);
   } else if(page==Page::Uploads) {
     const bool enabled[]={m.auto_wigle,m.auto_wardrift,m.auto_wdgwars};
     if(focus<3)emit(ui::Action::ToggleAutoUpload,int(focus),enabled[focus]?"0":"1");
@@ -178,7 +178,7 @@ void move(int delta,const ui::Model& m) {
     uint8_t indices[8]; const unsigned count=matches(m,indices);
     if(count)selectedMatch=(selectedMatch+count+delta)%count;
   } else {
-    const unsigned count=menuCount(); if(count)focus=(focus+count+delta)%count;
+    const unsigned count=menuCount(m); if(count)focus=(focus+count+delta)%count;
   }
 }
 void drawMenu(const char* const* names,unsigned count,unsigned visible=4) {
@@ -194,11 +194,18 @@ void render(const ui::Model& m) {
   char text[80];
   if(m.shutting_down || page==Page::Power) {
     header("POWER");
-    label(m.shutting_down?"Saving session before sleep...":"Stop capture, save, then sleep?",4,30,AMBER,38);
-    label("G0 wakes. Save before using switch.",4,44,MUTED,38);
-    if(m.shutting_down)label("Please wait for SD writes.",4,72,WHITE,38);
-    else { row(64,"CANCEL",focus==0); row(84,"SAVE + SLEEP",focus==1,AMBER); }
-    if(m.shutdown_error[0])label(m.shutdown_error,4,109,AMBER,38);
+    label(!m.shutting_down?"Stop capture and save, then:":m.switching_firmware?
+        "Saving session before switching...":"Saving session before sleep...",4,26,AMBER,38);
+    label("G0 wakes. Save before power switch.",4,38,MUTED,38);
+    if(m.shutting_down)label("Please wait for SD writes.",4,64,WHITE,38);
+    else {
+      row(52,"CANCEL",focus==0); row(71,"SAVE + SLEEP",focus==1,AMBER);
+      if(m.other_firmware[0]) {
+        char start[48]; snprintf(start,sizeof(start),"SAVE + START %s",m.other_firmware);
+        row(90,start,focus==2,CYAN);
+      }
+    }
+    if(m.shutdown_error[0])label(m.shutdown_error,4,111,AMBER,38);
     footer(m.shutting_down?"Saving...":"Up/Down choose  Enter OK  Esc cancel",m,false); return;
   }
   if(page==Page::Home) {
@@ -238,7 +245,7 @@ void render(const ui::Model& m) {
     header("SETTINGS"); status(m);
     char alert[40];snprintf(alert,sizeof(alert),"Alert sound: %s",m.recon_alerts?"ON":"OFF");
     const char* mode=m.lora_mode==2?"LoRa: BOTH / slow scan":m.lora_mode==1?"LoRa: MESHCORE":"LoRa: MESHTASTIC";
-    const char* names[]={"LoRa region","Connection keys", "Automatic uploads",alert,"Retry SD card","Power / save + sleep",mode};
+    const char* names[]={"LoRa region","Connection keys", "Automatic uploads",alert,"Retry SD card","Power / sleep / firmware",mode};
     drawMenu(names,7); footer("Up/Down choose  Enter open  Esc back",m);
   } else if(page==Page::Credentials) {
     header("KEYS"); label("Enter a replacement; saved on SD.",4,26,MUTED,38);
